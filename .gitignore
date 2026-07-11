@@ -1,0 +1,18 @@
+# macOS and editor metadata
+.DS_Store
+*.swp
+*.xcuserstate
+xcuserdata/
+
+# Repository-local Swift/Xcode build output
+/.build*/
+/build/
+/DerivedData/
+/OrbitSwitch.app/
+/*.dSYM/
+
+# Local signing and packaging output
+/*.pkg
+/*.zip
+/*.xcarchive/
+*.entitlements.local
