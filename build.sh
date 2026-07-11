@@ -48,6 +48,7 @@ rm -rf "$APP_PATH"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
 cp "$BIN_PATH/OrbitSwitch" "$APP_PATH/Contents/MacOS/OrbitSwitch"
 cp "$ROOT/Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
+cp "$ROOT/Resources/AppIcon.icns" "$APP_PATH/Contents/Resources/AppIcon.icns"
 chmod +x "$APP_PATH/Contents/MacOS/OrbitSwitch"
 /usr/bin/strip -S "$APP_PATH/Contents/MacOS/OrbitSwitch"
 
