@@ -22,6 +22,7 @@ final class AppState: ObservableObject {
     private var onboardingWindow: NSWindow?
     private var heldConfirmationModifiers: ShortcutModifiers = []
     private var modifierReleaseTimer: Timer?
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     init() {
         let store = SettingsStore()
@@ -46,6 +47,7 @@ final class AppState: ObservableObject {
             Log.shortcuts.error("Shortcut setup failed: \(error.localizedDescription, privacy: .public)")
         }
         applyAppearance(settings.value)
+        installWorkspaceObservers()
         refreshPermissions()
         if !settings.value.onboardingComplete { showOnboarding() }
     }
@@ -93,6 +95,9 @@ final class AppState: ObservableObject {
     }
 
     func applyShortcut(_ shortcut: ShortcutDefinition?, for action: ShortcutAction, allowingWarning: Bool = false) -> ShortcutUpdateResult {
+        if let shortcut, action != .dismiss, !shortcut.isSuitableForGlobalRegistration {
+            return .rejected("Global shortcuts require at least one modifier key.")
+        }
         if let shortcut, let conflict = ShortcutConflictDetector.conflict(for: shortcut, action: action, configured: settings.value.shortcuts) {
             switch conflict {
             case .duplicate(let other):
@@ -161,13 +166,18 @@ final class AppState: ObservableObject {
             shortcutStatus = "Shortcuts paused"
             return
         }
-        for action in ShortcutAction.allCases where action != .dismiss {
-            guard let shortcut = settings.shortcuts[action] else { continue }
-            try shortcutManager.register(
-                shortcut,
-                pressed: { [weak self] in self?.handle(action) },
-                released: {}
-            )
+        do {
+            for action in ShortcutAction.allCases where action != .dismiss {
+                guard let shortcut = settings.shortcuts[action] else { continue }
+                try shortcutManager.register(
+                    shortcut,
+                    pressed: { [weak self] in self?.handle(action) },
+                    released: {}
+                )
+            }
+        } catch {
+            shortcutManager.unregisterAll()
+            throw error
         }
         shortcutStatus = "Shortcuts active"
     }
@@ -205,6 +215,20 @@ final class AppState: ObservableObject {
         modifierReleaseTimer?.invalidate()
         modifierReleaseTimer = nil
         heldConfirmationModifiers = []
+    }
+
+    private func installWorkspaceObservers() {
+        guard workspaceObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        let names: [Notification.Name] = [
+            NSWorkspace.sessionDidResignActiveNotification,
+            NSWorkspace.screensDidSleepNotification
+        ]
+        workspaceObservers = names.map { name in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.dismissSwitcher() }
+            }
+        }
     }
 
     private func applyAppearance(_ settings: AppSettings) {

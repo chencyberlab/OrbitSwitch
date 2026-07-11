@@ -27,6 +27,9 @@ struct MenuBarContent: View {
             Button("Quit OrbitSwitch") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         }
-        .onAppear { appState.start() }
+        .onAppear {
+            appState.start()
+            appState.refreshPermissions()
+        }
     }
 }

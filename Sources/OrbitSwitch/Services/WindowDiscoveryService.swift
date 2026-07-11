@@ -13,7 +13,7 @@ struct SwitchableWindow: Identifiable {
 }
 
 protocol WindowDiscovering {
-    func discover(settings: AppSettings, capturePreviews: Bool) async -> [SwitchableWindow]
+    func discover(settings: AppSettings) async -> [SwitchableWindow]
     func capturePreviews(
         for windows: [SwitchableWindow],
         settings: AppSettings,
@@ -22,39 +22,31 @@ protocol WindowDiscovering {
 }
 
 final class WindowDiscoveryService: WindowDiscovering {
-    func discover(settings: AppSettings, capturePreviews: Bool) async -> [SwitchableWindow] {
-        let options: CGWindowListOption = settings.currentSpaceOnly && !settings.includeMinimized
+    func discover(settings: AppSettings) async -> [SwitchableWindow] {
+        let options: CGWindowListOption = Self.usesOnScreenWindowsOnly(settings)
             ? [.optionOnScreenOnly, .excludeDesktopElements]
             : [.optionAll, .excludeDesktopElements]
         guard let dictionaries = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
 
         var metadata = dictionaries.compactMap(Self.metadata(from:))
-        let minimizedWindows = Self.accessibilityWindowStates(for: Set(metadata.map(\.ownerPID)))
+        var minimizedWindows = Self.accessibilityWindowStates(
+            for: Set(metadata.lazy.filter {
+                !$0.isOnScreen && $0.ownerPID != getpid() && $0.isRegularApplication && $0.layer == 0
+            }.map(\.ownerPID))
+        )
         for index in metadata.indices where !metadata[index].isOnScreen {
             let states = minimizedWindows[metadata[index].ownerPID] ?? []
-            if let matchingState = states.first(where: { $0.title == metadata[index].title }) {
+            if let stateIndex = states.firstIndex(where: { $0.title == metadata[index].title }) {
+                let matchingState = states[stateIndex]
                 metadata[index].isMinimized = matchingState.isMinimized
+                minimizedWindows[metadata[index].ownerPID]?.remove(at: stateIndex)
             }
         }
         let eligible = WindowFilter.filtered(metadata, settings: settings, ownPID: getpid())
-        var windows = eligible.map { item in
+        return eligible.map { item in
             let app = NSRunningApplication(processIdentifier: item.ownerPID)
             return SwitchableWindow(metadata: item, appIcon: app?.icon, preview: nil)
         }
-        guard capturePreviews else { return windows }
-
-        do {
-            let content = try await Self.shareableContent(settings: settings)
-            let sharedWindows = Dictionary(uniqueKeysWithValues: content.windows.map { ($0.windowID, $0) })
-            for index in windows.indices.prefix(16) {
-                guard !Task.isCancelled else { return windows }
-                guard let sharedWindow = sharedWindows[windows[index].id] else { continue }
-                windows[index].preview = try? await Self.capture(sharedWindow, maximumWidth: settings.thumbnailQuality.maximumWidth)
-            }
-        } catch {
-            Log.windows.error("Preview discovery failed: \(error.localizedDescription, privacy: .public)")
-        }
-        return windows
     }
 
     func capturePreviews(
@@ -64,7 +56,7 @@ final class WindowDiscoveryService: WindowDiscovering {
     ) async {
         do {
             let content = try await Self.shareableContent(settings: settings)
-            let sharedWindows = Dictionary(uniqueKeysWithValues: content.windows.map { ($0.windowID, $0) })
+            let sharedWindows = Dictionary(content.windows.map { ($0.windowID, $0) }) { existing, _ in existing }
             for window in windows.prefix(16) {
                 guard !Task.isCancelled else { return }
                 guard let sharedWindow = sharedWindows[window.id],
@@ -73,6 +65,8 @@ final class WindowDiscoveryService: WindowDiscovering {
                 }
                 await onPreview(window.id, preview)
             }
+        } catch is CancellationError {
+            return
         } catch {
             Log.windows.error("Progressive preview capture failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -112,7 +106,7 @@ final class WindowDiscoveryService: WindowDiscovering {
     }
 
     private static func shareableContent(settings: AppSettings) async throws -> SCShareableContent {
-        let onScreenOnly = settings.currentSpaceOnly && !settings.includeMinimized
+        let onScreenOnly = usesOnScreenWindowsOnly(settings)
         do {
             return try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: onScreenOnly)
         } catch {
@@ -120,6 +114,10 @@ final class WindowDiscoveryService: WindowDiscovering {
             guard !Task.isCancelled else { throw CancellationError() }
             return try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: onScreenOnly)
         }
+    }
+
+    private static func usesOnScreenWindowsOnly(_ settings: AppSettings) -> Bool {
+        settings.currentSpaceOnly && !settings.includeMinimized && !settings.includeHiddenApps
     }
 
     private struct AccessibilityWindowState {
@@ -132,6 +130,7 @@ final class WindowDiscoveryService: WindowDiscovering {
         var result: [pid_t: [AccessibilityWindowState]] = [:]
         for processID in processIDs {
             let application = AXUIElementCreateApplication(processID)
+            AXUIElementSetMessagingTimeout(application, 0.2)
             var windowsValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windowsValue) == .success,
                   let windows = windowsValue as? [AXUIElement] else { continue }

@@ -34,18 +34,19 @@ public struct WindowMetadata: Identifiable, Equatable, Sendable {
 public enum WindowFilter {
     public static func isEligible(_ window: WindowMetadata, settings: AppSettings, ownPID: pid_t) -> Bool {
         guard window.ownerPID != ownPID,
-              window.layer == 0,
               window.alpha > 0.01,
               window.isRegularApplication,
               window.frame.width >= settings.minimumWindowWidth,
               window.frame.height >= settings.minimumWindowHeight,
               window.appName != "Dock",
               window.appName != "Window Server" else { return false }
+        if settings.ignoreUtilityPanels && window.layer != 0 { return false }
+        if !settings.ignoreUtilityPanels && (window.layer < 0 || window.layer > 10) { return false }
         if !settings.includeHiddenApps && window.isApplicationHidden { return false }
         if !window.isOnScreen {
             switch window.isMinimized {
             case true where !settings.includeMinimized: return false
-            case false where settings.currentSpaceOnly: return false
+            case false where settings.currentSpaceOnly && !window.isApplicationHidden: return false
             case nil: return false
             default: break
             }

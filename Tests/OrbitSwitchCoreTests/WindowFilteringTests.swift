@@ -74,10 +74,18 @@ final class WindowFilteringTests: XCTestCase {
     }
 
     func testHiddenAppsRespectPreference() {
-        let hidden = window(hiddenApp: true)
+        let hidden = window(onScreen: false, minimized: false, hiddenApp: true)
         var settings = AppSettings()
         XCTAssertFalse(WindowFilter.isEligible(hidden, settings: settings, ownPID: 10))
         settings.includeHiddenApps = true
         XCTAssertTrue(WindowFilter.isEligible(hidden, settings: settings, ownPID: 10))
+    }
+
+    func testUtilityPanelFilteringCanBeDisabled() {
+        let utilityPanel = window(layer: 3)
+        var settings = AppSettings()
+        XCTAssertFalse(WindowFilter.isEligible(utilityPanel, settings: settings, ownPID: 10))
+        settings.ignoreUtilityPanels = false
+        XCTAssertTrue(WindowFilter.isEligible(utilityPanel, settings: settings, ownPID: 10))
     }
 }

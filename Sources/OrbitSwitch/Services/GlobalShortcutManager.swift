@@ -16,11 +16,13 @@ protocol GlobalShortcutManaging: AnyObject {
 enum GlobalShortcutError: LocalizedError {
     case handlerInstallation(OSStatus)
     case registrationFailed(OSStatus)
+    case modifierRequired
 
     var errorDescription: String? {
         switch self {
         case .handlerInstallation(let status): "Could not install the keyboard shortcut handler (\(status))."
         case .registrationFailed(let status): "macOS or another app refused this shortcut (\(status))."
+        case .modifierRequired: "Global shortcuts require at least one modifier key."
         }
     }
 }
@@ -77,6 +79,7 @@ final class GlobalShortcutManager: GlobalShortcutManaging {
     }
 
     func register(_ shortcut: ShortcutDefinition, pressed: @escaping () -> Void, released: @escaping () -> Void) throws {
+        guard shortcut.isSuitableForGlobalRegistration else { throw GlobalShortcutError.modifierRequired }
         if identifiers[shortcut] != nil { throw GlobalShortcutError.registrationFailed(OSStatus(eventHotKeyExistsErr)) }
         let identifier = nextIdentifier
         nextIdentifier += 1

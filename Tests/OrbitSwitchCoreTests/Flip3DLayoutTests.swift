@@ -27,4 +27,14 @@ final class Flip3DLayoutTests: XCTestCase {
         XCTAssertEqual(placements[3].y, 46, accuracy: 0.001)
     }
 
+    func testSelectionChangesCardAssignmentsWithoutChangingStackSlots() {
+        let baseline = Flip3DLayout.placements(count: 8, selection: 0, spacing: 60, angle: 12)
+            .sorted { $0.relativeIndex < $1.relativeIndex }
+        for selection in 1..<8 {
+            let slots = Flip3DLayout.placements(count: 8, selection: selection, spacing: 60, angle: 12)
+                .sorted { $0.relativeIndex < $1.relativeIndex }
+            XCTAssertEqual(slots, baseline)
+        }
+    }
+
 }

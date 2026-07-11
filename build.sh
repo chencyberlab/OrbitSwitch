@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="${0:A:h}"
 SCRATCH_PATH="${SCRATCH_PATH:-$ROOT/.build}"
+SCRATCH_PATH="${SCRATCH_PATH:A}"
 APP_PATH="$ROOT/OrbitSwitch.app"
 CONFIGURATION="${CONFIGURATION:-release}"
 BUILD_ARCH="${BUILD_ARCH:-native}"
@@ -48,6 +49,7 @@ mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
 cp "$BIN_PATH/OrbitSwitch" "$APP_PATH/Contents/MacOS/OrbitSwitch"
 cp "$ROOT/Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
 chmod +x "$APP_PATH/Contents/MacOS/OrbitSwitch"
+/usr/bin/strip -S "$APP_PATH/Contents/MacOS/OrbitSwitch"
 
 plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$APP_PATH/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP_PATH/Contents/Info.plist"
@@ -60,4 +62,6 @@ else
   plutil -replace OrbitSwitchSigningMode -string stable-identity "$APP_PATH/Contents/Info.plist"
 fi
 codesign "${CODESIGN_ARGS[@]}" "$APP_PATH"
+plutil -lint "$APP_PATH/Contents/Info.plist" >/dev/null
+codesign --verify --deep --strict "$APP_PATH"
 print "Built $APP_PATH"

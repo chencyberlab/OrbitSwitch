@@ -60,18 +60,13 @@ final class Flip3DView: NSView {
             return card
         }
         emptyLabel.isHidden = !windows.isEmpty
-        needsLayout = true
-    }
-
-    func updatePreviews(windows updatedWindows: [SwitchableWindow]) {
-        let updates = Dictionary(uniqueKeysWithValues: updatedWindows.compactMap { window -> (CGWindowID, CGImage)? in
-            guard let preview = window.preview else { return nil }
-            return (window.id, preview)
-        })
-        for card in cards { card.updatePreview(updates[card.representedID]) }
-        for index in windows.indices {
-            if let preview = updates[windows[index].id] { windows[index].preview = preview }
+        if bounds.width > 0, bounds.height > 0 {
+            configureBaseCardGeometry()
+            lastLayoutSize = bounds.size
+            backgroundGradient.frame = bounds
+            layoutCards(animated: false)
         }
+        needsLayout = true
     }
 
     func updatePreview(id: CGWindowID, image: CGImage) {
@@ -82,6 +77,16 @@ final class Flip3DView: NSView {
     func updateSelection(_ selection: Int) {
         self.selection = Flip3DLayout.wrappedIndex(selection, count: windows.count)
         layoutCards(animated: true)
+    }
+
+    func prepareForPresentation() {
+        layoutSubtreeIfNeeded()
+        configureBaseCardGeometry()
+        lastLayoutSize = bounds.size
+        backgroundGradient.frame = background.bounds
+        layoutCards(animated: false)
+        displayIfNeeded()
+        CATransaction.flush()
     }
 
     override func layout() {

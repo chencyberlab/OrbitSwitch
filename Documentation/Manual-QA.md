@@ -9,6 +9,8 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Menu bar Open Switcher works without a global shortcut.
 - [ ] Pause Shortcuts disables every global binding and Resume restores them.
 - [ ] Dock and menu bar visibility settings apply without relaunching.
+- [ ] The menu-bar and Dock controls never permit both app entry points to be hidden.
+- [ ] Disabling Remember Display Preference restores Pointer Display after relaunch.
 - [ ] Launch at Login registers in a Developer ID signed build and reports the correct macOS status.
 - [ ] Quit removes the overlay and all hotkeys.
 
@@ -28,6 +30,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Option-Shift-Tab moves backward and wraps from first to last.
 - [ ] A custom shortcut takes effect immediately without restarting.
 - [ ] Clearing a shortcut with Delete unregisters it.
+- [ ] A modifierless global shortcut is rejected; modifierless Escape remains valid for local dismissal.
 - [ ] Restore Defaults restores all default bindings.
 - [ ] Duplicating another OrbitSwitch binding is rejected.
 - [ ] Command-Tab, Command-Space, Command-Backtick, and Control-arrow bindings show a warning.
@@ -49,6 +52,8 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Multiple browser and document windows retain approximate front-to-back order.
 - [ ] Menu bar, Dock, desktop, tiny panels, and OrbitSwitch windows are absent.
 - [ ] Menu-bar-only utilities, agents, and background helpers never appear as switchable windows.
+- [ ] Include Hidden Apps and Ignore Transient Utility Panels each change filtering as labeled.
+- [ ] Multiple comma-separated excluded bundle identifiers can be typed and applied with Return.
 - [ ] Full-screen apps can show the auxiliary overlay and dismiss it cleanly.
 
 ## Displays and Spaces
@@ -72,5 +77,6 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Network inspection shows no outbound connection from OrbitSwitch.
 - [ ] No preview image or window-title log appears on disk after repeated switching.
 - [ ] Locking the screen and later invoking the overlay does not reveal stale previews.
+- [ ] Locking the session or sleeping displays dismisses a visible overlay immediately.
 - [ ] Memory returns near baseline after repeatedly opening a thirty-window stack.
 - [ ] Rapid shortcut, display, and Settings changes never create duplicate overlays.

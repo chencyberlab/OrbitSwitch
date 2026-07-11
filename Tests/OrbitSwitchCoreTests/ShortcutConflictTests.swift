@@ -32,4 +32,9 @@ final class ShortcutConflictTests: XCTestCase {
         XCTAssertEqual(ShortcutHoldBehavior.confirmationModifiers(for: .showNext, shortcut: forward), [.option])
         XCTAssertEqual(ShortcutHoldBehavior.confirmationModifiers(for: .previous, shortcut: reverse), [.option])
     }
+
+    func testGlobalRegistrationRequiresModifier() {
+        XCTAssertFalse(ShortcutDefinition(keyCode: 0, modifiers: []).isSuitableForGlobalRegistration)
+        XCTAssertTrue(ShortcutDefinition(keyCode: 0, modifiers: [.option]).isSuitableForGlobalRegistration)
+    }
 }

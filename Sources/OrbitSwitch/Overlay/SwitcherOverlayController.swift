@@ -22,6 +22,7 @@ final class SwitcherOverlayController {
     private var preparation: Task<Void, Never>?
     private var pendingOffset = 0
     private var activateWhenReady = false
+    private var presentationRevision = 0
 
     init(discovery: WindowDiscovering = WindowDiscoveryService(), activator: WindowActivating = AccessibilityWindowController()) {
         self.discovery = discovery
@@ -52,6 +53,7 @@ final class SwitcherOverlayController {
             dismiss(); return
         }
         state = .activating
+        preparation?.cancel()
         let target = windows[selection]
         closePanels()
         do { try activator.activate(target) }
@@ -78,7 +80,7 @@ final class SwitcherOverlayController {
             guard let self else { return }
             var adjusted = settings
             if mode == .onePerApplication { adjusted.groupByApplication = true }
-            var discovered = await discovery.discover(settings: adjusted, capturePreviews: false)
+            var discovered = await discovery.discover(settings: adjusted)
             guard !Task.isCancelled else { return }
             if mode == .currentApplication, let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier {
                 discovered = discovered.filter { $0.metadata.ownerPID == frontPID }
@@ -100,13 +102,18 @@ final class SwitcherOverlayController {
     }
 
     private func present() {
+        let availableScreens = NSScreen.screens
+        guard let fallbackScreen = NSScreen.main ?? availableScreens.first else {
+            clear()
+            return
+        }
         let targetScreens: [NSScreen]
         switch settings.displayMode {
-        case .active: targetScreens = [NSScreen.main ?? NSScreen.screens[0]]
+        case .active: targetScreens = [fallbackScreen]
         case .pointer:
             let point = NSEvent.mouseLocation
-            targetScreens = [NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main ?? NSScreen.screens[0]]
-        case .all: targetScreens = NSScreen.screens
+            targetScreens = [availableScreens.first(where: { $0.frame.contains(point) }) ?? fallbackScreen]
+        case .all: targetScreens = availableScreens
         }
         panels = targetScreens.map { screen in
             let view = Flip3DView(frame: screen.frame)
@@ -118,7 +125,10 @@ final class SwitcherOverlayController {
             }
             view.onConfirm = { [weak self] in self?.confirm() }
             view.onCancel = { [weak self] in self?.dismiss() }
-            return SwitcherOverlayWindow(screen: screen, content: view)
+            let panel = SwitcherOverlayWindow(screen: screen, content: view)
+            panel.alphaValue = 0
+            view.prepareForPresentation()
+            return panel
         }
         panels.dropFirst().forEach { $0.orderFrontRegardless() }
         panels.first?.makeKeyAndOrderFront(nil)
@@ -126,6 +136,16 @@ final class SwitcherOverlayController {
         let initialSelection = Flip3DLayout.wrappedIndex(pendingOffset, count: windows.count)
         state = .visible(selection: initialSelection)
         pendingOffset = 0
+        presentationRevision += 1
+        let revision = presentationRevision
+        let panelsToReveal = panels
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.presentationRevision == revision, case .visible = self.state else { return }
+            panelsToReveal.compactMap { $0.contentView as? Flip3DView }.forEach { $0.prepareForPresentation() }
+            CATransaction.flush()
+            panelsToReveal.forEach { $0.alphaValue = 1 }
+        }
         if activateWhenReady {
             activateWhenReady = false
             confirm()
@@ -145,6 +165,8 @@ final class SwitcherOverlayController {
     }
 
     private func clear() {
+        preparation?.cancel()
+        presentationRevision += 1
         windows.removeAll()
         preparation = nil
         pendingOffset = 0

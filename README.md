@@ -16,7 +16,7 @@ From the repository root:
 ./build.sh
 ```
 
-The script builds the release executable with Swift Package Manager, creates `OrbitSwitch.app` in the repository root, and applies an ad-hoc signature for local testing. The package scratch directory, compiler caches, temporary directory, and generated app all stay inside the repository and are ignored by Git.
+The script builds the release executable with Swift Package Manager, strips compiler debug metadata from the packaged executable, creates `OrbitSwitch.app` in the repository root, and applies an ad-hoc signature for local testing. The package scratch directory, compiler caches, temporary directory, and generated app all stay inside the repository and are ignored by Git.
 
 To use a separate repository-local scratch directory or debug configuration:
 
@@ -24,7 +24,7 @@ To use a separate repository-local scratch directory or debug configuration:
 SCRATCH_PATH="$PWD/.build-debug" CONFIGURATION=debug ./build.sh
 ```
 
-`SCRATCH_PATH` is rejected if it points outside the repository. Add any custom scratch directory to `.gitignore` before using it.
+`SCRATCH_PATH` is canonicalized and rejected if it resolves outside the repository. Add any custom scratch directory to `.gitignore` before using it. The script validates the generated plist and code signature before reporting success.
 
 `BUILD_ARCH` accepts `native` (the default), `arm64`, `x86_64`, or `universal`. For example, a release build containing Apple Silicon and Intel slices is:
 

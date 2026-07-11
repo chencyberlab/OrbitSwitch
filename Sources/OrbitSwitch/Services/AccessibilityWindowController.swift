@@ -24,7 +24,7 @@ final class AccessibilityWindowController: WindowActivating {
         guard let app = NSRunningApplication(processIdentifier: window.metadata.ownerPID) else {
             throw WindowActivationError.applicationUnavailable
         }
-        app.activate(options: [.activateAllWindows])
+        app.activate(options: [])
         guard AXIsProcessTrusted() else { throw WindowActivationError.accessibilityUnavailable }
 
         let application = AXUIElementCreateApplication(window.metadata.ownerPID)

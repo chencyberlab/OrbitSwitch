@@ -37,8 +37,10 @@ struct ShortcutSettingsView: View {
             Button("Cancel", role: .cancel) { pending = nil }
             Button("Try Anyway") {
                 guard let pending else { return }
-                if case .rejected(let error) = appState.applyShortcut(pending.1, for: pending.0, allowingWarning: true) {
-                    message = error
+                switch appState.applyShortcut(pending.1, for: pending.0, allowingWarning: true) {
+                case .accepted: message = nil
+                case .rejected(let error): message = error
+                case .warning(let warning): message = warning
                 }
                 self.pending = nil
             }

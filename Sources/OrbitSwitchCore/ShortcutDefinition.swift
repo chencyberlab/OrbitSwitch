@@ -22,6 +22,8 @@ public struct ShortcutDefinition: Codable, Hashable, Sendable {
         self.keyCode = keyCode
         self.modifiers = modifiers
     }
+
+    public var isSuitableForGlobalRegistration: Bool { !modifiers.isEmpty }
 }
 
 public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Sendable {

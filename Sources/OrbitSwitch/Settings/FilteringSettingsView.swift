@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FilteringSettingsView: View {
     @EnvironmentObject private var settings: SettingsStore
+    @State private var excludedAppsText = ""
 
     var body: some View {
         Form {
@@ -26,23 +27,22 @@ struct FilteringSettingsView: View {
                     Text("\(settings.value.minimumWindowHeight, specifier: "%.0f") pt").monospacedDigit()
                 }
             }
-            TextField("Excluded bundle identifiers (comma separated)", text: excludedAppsBinding)
+            TextField("Excluded bundle identifiers (comma separated)", text: $excludedAppsText)
                 .textFieldStyle(.roundedBorder)
-            Text("Example: com.example.privateapp. OrbitSwitch stores this list only on this Mac.")
+                .onSubmit(commitExcludedApps)
+            Text("Press Return to apply. Example: com.example.privateapp. OrbitSwitch stores this list only on this Mac.")
                 .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .padding()
+        .onAppear { excludedAppsText = settings.value.excludedBundleIdentifiers.joined(separator: ", ") }
+        .onDisappear(perform: commitExcludedApps)
     }
 
-    private var excludedAppsBinding: Binding<String> {
-        Binding(
-            get: { settings.value.excludedBundleIdentifiers.joined(separator: ", ") },
-            set: { value in
-                settings.value.excludedBundleIdentifiers = value.split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }
-            }
-        )
+    private func commitExcludedApps() {
+        var seen = Set<String>()
+        settings.value.excludedBundleIdentifiers = excludedAppsText.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 }

@@ -25,8 +25,4 @@ final class SettingsStore: ObservableObject {
             set: { self.value[keyPath: keyPath] = $0 }
         )
     }
-
-    func restoreShortcutDefaults() {
-        value.shortcuts = AppSettings.defaultShortcuts
-    }
 }

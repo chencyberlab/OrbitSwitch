@@ -73,12 +73,16 @@ public final class SettingsPersistence {
     public func load() -> AppSettings {
         guard let data = defaults.data(forKey: key) else { return AppSettings() }
         if var settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
+            var shouldSave = false
             if settings.schemaVersion < 2 {
                 settings.schemaVersion = 2
                 settings.includeMinimized = true
                 settings.backgroundBlur = min(85, max(0, settings.backgroundBlur * 2.4))
-                save(settings)
+                shouldSave = true
             }
+            if normalizePersistedInvariants(&settings) { shouldSave = true }
+            if shouldSave { save(settings) }
+            if !settings.rememberDisplayPreference { settings.displayMode = .pointer }
             return settings
         }
         if let legacy = try? JSONDecoder().decode(LegacySettings.self, from: data) {
@@ -90,6 +94,8 @@ public final class SettingsPersistence {
             }
             if let showDockIcon = legacy.showDockIcon { migrated.showDockIcon = showDockIcon }
             if let showMenuBarIcon = legacy.showMenuBarIcon { migrated.showMenuBarIcon = showMenuBarIcon }
+            _ = normalizePersistedInvariants(&migrated)
+            save(migrated)
             return migrated
         }
         return AppSettings()
@@ -98,6 +104,20 @@ public final class SettingsPersistence {
     public func save(_ settings: AppSettings) {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         defaults.set(data, forKey: key)
+    }
+
+    private func normalizePersistedInvariants(_ settings: inout AppSettings) -> Bool {
+        var changed = false
+        if !settings.showMenuBarIcon && !settings.showDockIcon {
+            settings.showMenuBarIcon = true
+            changed = true
+        }
+        for action in ShortcutAction.allCases where action != .dismiss {
+            guard let shortcut = settings.shortcuts[action], !shortcut.isSuitableForGlobalRegistration else { continue }
+            settings.shortcuts[action] = nil
+            changed = true
+        }
+        return changed
     }
 
     private struct LegacySettings: Codable {

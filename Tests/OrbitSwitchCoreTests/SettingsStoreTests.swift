@@ -32,6 +32,8 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(migrated.shortcuts[.showNext], .init(keyCode: 13, modifiers: [.control]))
         XCTAssertTrue(migrated.showDockIcon)
         XCTAssertEqual(migrated.schemaVersion, 2)
+        let persistedData = try XCTUnwrap(defaults.data(forKey: "appSettings.v1"))
+        XCTAssertNoThrow(try JSONDecoder().decode(AppSettings.self, from: persistedData))
     }
 
     func testMigratesVersionOneAppearanceAndMinimizedDefaults() throws {
@@ -47,5 +49,46 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(migrated.schemaVersion, 2)
         XCTAssertTrue(migrated.includeMinimized)
         XCTAssertEqual(migrated.backgroundBlur, 57.6, accuracy: 0.001)
+    }
+
+    func testDisplayPreferenceResetsWhenRememberingIsDisabled() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.displayMode = .all
+        settings.rememberDisplayPreference = false
+        persistence.save(settings)
+        XCTAssertEqual(persistence.load().displayMode, .pointer)
+    }
+
+    func testPersistenceKeepsAtLeastOneApplicationEntryVisible() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.showMenuBarIcon = false
+        settings.showDockIcon = false
+        persistence.save(settings)
+        let loaded = persistence.load()
+        XCTAssertTrue(loaded.showMenuBarIcon)
+        XCTAssertFalse(loaded.showDockIcon)
+    }
+
+    func testPersistenceRemovesUnsafeModifierlessGlobalShortcuts() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.shortcuts[.showNext] = ShortcutDefinition(keyCode: 0, modifiers: [])
+        persistence.save(settings)
+
+        XCTAssertNil(persistence.load().shortcuts[.showNext])
+        let persistedData = try XCTUnwrap(defaults.data(forKey: "appSettings.v1"))
+        let persisted = try JSONDecoder().decode(AppSettings.self, from: persistedData)
+        XCTAssertNil(persisted.shortcuts[.showNext])
     }
 }
