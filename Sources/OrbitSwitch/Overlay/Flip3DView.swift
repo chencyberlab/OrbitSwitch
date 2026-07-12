@@ -11,6 +11,7 @@ final class Flip3DView: NSView {
     private let emptyLabel = NSTextField(labelWithString: L10n.noWindows)
     private var cards: [WindowCardView] = []
     private var windows: [SwitchableWindow] = []
+    private var placements: [Flip3DPlacement] = []
     private var selection = 0
     private var settings = AppSettings()
     private var lastLayoutSize = CGSize.zero
@@ -141,7 +142,11 @@ final class Flip3DView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let index = cards.indices.reversed().first(where: { index in
+        let frontToBack = cards.indices.sorted {
+            (placements.indices.contains($0) ? placements[$0].relativeIndex : $0)
+                < (placements.indices.contains($1) ? placements[$1].relativeIndex : $1)
+        }
+        guard let index = frontToBack.first(where: { index in
             guard (cards[index].layer?.presentation()?.opacity ?? cards[index].layer?.opacity ?? 0) > 0.1 else { return false }
             return cards[index].frame.contains(point)
         }) else { return }
@@ -155,8 +160,12 @@ final class Flip3DView: NSView {
             count: cards.count,
             selection: selection,
             spacing: reduceMotion ? 24 : settings.cardSpacing,
-            angle: reduceMotion ? 0 : settings.stackAngle
+            angle: reduceMotion ? 0 : settings.stackAngle,
+            perspective: reduceMotion ? 0 : settings.perspectiveStrength,
+            horizontalTravel: max(180, bounds.width * 0.33),
+            verticalTravel: max(120, bounds.height * 0.24)
         )
+        self.placements = placements
         for (index, card) in cards.enumerated() {
             guard let layer = card.layer else { continue }
             let placement = placements[index]
