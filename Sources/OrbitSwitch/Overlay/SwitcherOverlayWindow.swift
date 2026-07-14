@@ -19,5 +19,6 @@ final class SwitcherOverlayWindow: NSPanel {
         contentView = content
         isReleasedWhenClosed = false
         animationBehavior = .none
+        acceptsMouseMovedEvents = true
     }
 }

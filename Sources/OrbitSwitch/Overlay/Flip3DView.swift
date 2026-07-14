@@ -5,6 +5,7 @@ final class Flip3DView: NSView {
     var onMove: ((Int) -> Void)?
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onControlAction: ((WindowControlAction, CGWindowID) -> Void)?
 
     private let background = NSView()
     private let backgroundGradient = CAGradientLayer()
@@ -17,8 +18,10 @@ final class Flip3DView: NSView {
     private var lastLayoutSize = CGSize.zero
     private var accumulatedScroll: CGFloat = 0
     private var lastScrollStepTime: TimeInterval = 0
+    private var hoverTrackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -140,17 +143,67 @@ final class Flip3DView: NSView {
         }
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard cards.indices.contains(selection) else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let selectedCard = cards[selection]
+        guard let hit = cardHit(at: point), hit.index == selection else {
+            selectedCard.setControlHighlight(nil)
+            return
+        }
+        selectedCard.setControlHighlight(selectedCard.controlAction(at: hit.localPoint))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard cards.indices.contains(selection) else { return }
+        cards[selection].setControlHighlight(nil)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        guard let hit = cardHit(at: point) else { return }
+        if hit.index == selection {
+            if let action = cards[hit.index].controlAction(at: hit.localPoint) {
+                onControlAction?(action, cards[hit.index].representedID)
+            } else {
+                onConfirm?()
+            }
+        } else {
+            onMove?(hit.index - selection)
+        }
+    }
+
+    /// Cards are positioned by CALayer 3D transforms, which AppKit hit-testing
+    /// ignores (all card frames overlap at the base rect). Map the click through
+    /// each card layer's transform, front to back, to find what was really hit.
+    private func cardHit(at point: NSPoint) -> (index: Int, localPoint: NSPoint)? {
+        guard let rootLayer = layer else { return nil }
         let frontToBack = cards.indices.sorted {
             (placements.indices.contains($0) ? placements[$0].relativeIndex : $0)
                 < (placements.indices.contains($1) ? placements[$1].relativeIndex : $1)
         }
-        guard let index = frontToBack.first(where: { index in
-            guard (cards[index].layer?.presentation()?.opacity ?? cards[index].layer?.opacity ?? 0) > 0.1 else { return false }
-            return cards[index].frame.contains(point)
-        }) else { return }
-        if index == selection { onConfirm?() } else { onMove?(index - selection) }
+        for index in frontToBack {
+            guard let cardLayer = cards[index].layer else { continue }
+            guard (cardLayer.presentation()?.opacity ?? cardLayer.opacity) > 0.1 else { continue }
+            let localPoint = cardLayer.convert(point, from: rootLayer)
+            guard localPoint.x.isFinite, localPoint.y.isFinite,
+                  cardLayer.bounds.contains(localPoint) else { continue }
+            return (index, localPoint)
+        }
+        return nil
     }
 
     private func layoutCards(animated: Bool) {

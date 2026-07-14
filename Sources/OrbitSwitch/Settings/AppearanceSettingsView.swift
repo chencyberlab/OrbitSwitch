@@ -8,7 +8,7 @@ struct AppearanceSettingsView: View {
         Form {
             Section("3D Stack") {
                 integerSlider("Perspective strength", value: perspectivePercentage, range: 0...100, suffix: "%")
-                integerSlider("Stack angle", value: settings.binding(\.stackAngle), range: 0...28, suffix: "°")
+                integerSlider("Stack angle", value: settings.binding(\.stackAngle), range: -28...28, suffix: "°")
                 integerSlider("Card spacing", value: settings.binding(\.cardSpacing), range: 24...110, suffix: " pt")
                 decimalSlider("Animation duration", value: settings.binding(\.animationDuration), range: 0.1...0.65, suffix: " s")
                 integerSlider("Background dimming", value: settings.binding(\.backgroundBlur), range: 0...85, suffix: "%")
@@ -20,6 +20,10 @@ struct AppearanceSettingsView: View {
                 Toggle("Show app icon", isOn: settings.binding(\.showAppIcon))
                 Toggle("Show app name", isOn: settings.binding(\.showAppName))
                 Toggle("Show window title", isOn: settings.binding(\.showWindowTitle))
+                Toggle(isOn: settings.binding(\.showWindowControls)) {
+                    Text("Show window controls")
+                    Text("Close, minimize, and zoom buttons on the front card.")
+                }
                 Picker("Theme", selection: settings.binding(\.theme)) {
                     ForEach(AppTheme.allCases) { theme in Text(theme.rawValue.capitalized).tag(theme) }
                 }

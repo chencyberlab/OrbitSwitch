@@ -35,6 +35,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var showAppIcon = true
     public var showAppName = true
     public var showWindowTitle = true
+    public var showWindowControls = true
     public var theme = AppTheme.system
 
     public var currentSpaceOnly = true
@@ -52,6 +53,43 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var onboardingComplete = false
 
     public init() {}
+
+    /// Tolerant decoding: only schemaVersion is required, so persisted settings
+    /// survive new fields being added. Payloads without schemaVersion still fall
+    /// through to the LegacySettings migration path in SettingsPersistence.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = AppSettings()
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
+        showMenuBarIcon = try container.decodeIfPresent(Bool.self, forKey: .showMenuBarIcon) ?? defaults.showMenuBarIcon
+        showDockIcon = try container.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? defaults.showDockIcon
+        shortcutsPaused = try container.decodeIfPresent(Bool.self, forKey: .shortcutsPaused) ?? defaults.shortcutsPaused
+        shortcuts = try container.decodeIfPresent([ShortcutAction: ShortcutDefinition].self, forKey: .shortcuts) ?? defaults.shortcuts
+        perspectiveStrength = try container.decodeIfPresent(Double.self, forKey: .perspectiveStrength) ?? defaults.perspectiveStrength
+        stackAngle = try container.decodeIfPresent(Double.self, forKey: .stackAngle) ?? defaults.stackAngle
+        cardSpacing = try container.decodeIfPresent(Double.self, forKey: .cardSpacing) ?? defaults.cardSpacing
+        animationDuration = try container.decodeIfPresent(Double.self, forKey: .animationDuration) ?? defaults.animationDuration
+        thumbnailQuality = try container.decodeIfPresent(ThumbnailQuality.self, forKey: .thumbnailQuality) ?? defaults.thumbnailQuality
+        backgroundBlur = try container.decodeIfPresent(Double.self, forKey: .backgroundBlur) ?? defaults.backgroundBlur
+        showAppIcon = try container.decodeIfPresent(Bool.self, forKey: .showAppIcon) ?? defaults.showAppIcon
+        showAppName = try container.decodeIfPresent(Bool.self, forKey: .showAppName) ?? defaults.showAppName
+        showWindowTitle = try container.decodeIfPresent(Bool.self, forKey: .showWindowTitle) ?? defaults.showWindowTitle
+        showWindowControls = try container.decodeIfPresent(Bool.self, forKey: .showWindowControls) ?? defaults.showWindowControls
+        theme = try container.decodeIfPresent(AppTheme.self, forKey: .theme) ?? defaults.theme
+        currentSpaceOnly = try container.decodeIfPresent(Bool.self, forKey: .currentSpaceOnly) ?? defaults.currentSpaceOnly
+        includeMinimized = try container.decodeIfPresent(Bool.self, forKey: .includeMinimized) ?? defaults.includeMinimized
+        includeHiddenApps = try container.decodeIfPresent(Bool.self, forKey: .includeHiddenApps) ?? defaults.includeHiddenApps
+        excludedBundleIdentifiers = try container.decodeIfPresent([String].self, forKey: .excludedBundleIdentifiers) ?? defaults.excludedBundleIdentifiers
+        minimumWindowWidth = try container.decodeIfPresent(Double.self, forKey: .minimumWindowWidth) ?? defaults.minimumWindowWidth
+        minimumWindowHeight = try container.decodeIfPresent(Double.self, forKey: .minimumWindowHeight) ?? defaults.minimumWindowHeight
+        groupByApplication = try container.decodeIfPresent(Bool.self, forKey: .groupByApplication) ?? defaults.groupByApplication
+        includeUntitled = try container.decodeIfPresent(Bool.self, forKey: .includeUntitled) ?? defaults.includeUntitled
+        ignoreUtilityPanels = try container.decodeIfPresent(Bool.self, forKey: .ignoreUtilityPanels) ?? defaults.ignoreUtilityPanels
+        displayMode = try container.decodeIfPresent(DisplayMode.self, forKey: .displayMode) ?? defaults.displayMode
+        rememberDisplayPreference = try container.decodeIfPresent(Bool.self, forKey: .rememberDisplayPreference) ?? defaults.rememberDisplayPreference
+        onboardingComplete = try container.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? defaults.onboardingComplete
+    }
 
     public static let defaultShortcuts: [ShortcutAction: ShortcutDefinition] = [
         .showNext: .init(keyCode: 48, modifiers: [.option]),

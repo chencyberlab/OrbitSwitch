@@ -125,6 +125,9 @@ final class SwitcherOverlayController {
             }
             view.onConfirm = { [weak self] in self?.confirm() }
             view.onCancel = { [weak self] in self?.dismiss() }
+            view.onControlAction = { [weak self] action, windowID in
+                self?.performControl(action, windowID: windowID)
+            }
             let panel = SwitcherOverlayWindow(screen: screen, content: view)
             panel.alphaValue = 0
             view.prepareForPresentation()
@@ -149,6 +152,59 @@ final class SwitcherOverlayController {
         if activateWhenReady {
             activateWhenReady = false
             confirm()
+        }
+    }
+
+    private func performControl(_ action: WindowControlAction, windowID: CGWindowID) {
+        guard case .visible(let selection) = state,
+              let index = windows.firstIndex(where: { $0.id == windowID }) else { return }
+        do { try activator.perform(action, on: windows[index]) }
+        catch {
+            Log.windows.error("Window control action failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        switch action {
+        case .close:
+            removeWindow(at: index, currentSelection: selection)
+        case .minimize:
+            if settings.includeMinimized {
+                windows[index].metadata.isMinimized = true
+            } else {
+                removeWindow(at: index, currentSelection: selection)
+            }
+        case .zoom:
+            refreshPreviewSoon(for: windows[index])
+        }
+    }
+
+    private func removeWindow(at index: Int, currentSelection: Int) {
+        windows.remove(at: index)
+        guard !windows.isEmpty else {
+            dismiss()
+            return
+        }
+        let adjusted = index < currentSelection ? currentSelection - 1 : currentSelection
+        let selection = Flip3DLayout.wrappedIndex(adjusted, count: windows.count)
+        state = .visible(selection: selection)
+        panels.compactMap { $0.contentView as? Flip3DView }.forEach {
+            $0.configure(windows: windows, selection: selection, settings: settings)
+        }
+    }
+
+    private func refreshPreviewSoon(for window: SwitchableWindow) {
+        guard PermissionService.status.screenRecording else { return }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, case .visible = self.state else { return }
+            await self.discovery.capturePreviews(for: [window], settings: self.settings) { [weak self] id, image in
+                guard let self, case .visible = self.state else { return }
+                if let index = self.windows.firstIndex(where: { $0.id == id }) {
+                    self.windows[index].preview = image
+                }
+                self.panels.compactMap { $0.contentView as? Flip3DView }.forEach {
+                    $0.updatePreview(id: id, image: image)
+                }
+            }
         }
     }
 

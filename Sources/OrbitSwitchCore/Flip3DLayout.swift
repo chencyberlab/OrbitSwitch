@@ -28,7 +28,9 @@ public enum Flip3DLayout {
     }
 
     /// Vista Flip 3D staircase: the selected card sits front and center while
-    /// successive cards step up and to the left, receding in Z.
+    /// successive cards step up and to the left, receding in Z. A positive
+    /// angle yaws every card Vista-style: right edge toward the viewer, left
+    /// edge receding; negative flips the tilt, zero renders the stack flat.
     ///
     /// x/y/scale are raw layer-transform values pre-multiplied by the m34
     /// projection divisor `w = 1 + perspective * |z|`, so the *projected*

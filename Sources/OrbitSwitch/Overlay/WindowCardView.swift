@@ -8,9 +8,16 @@ final class WindowCardView: NSView {
     private let appLabel = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
     private let fallbackLabel = NSTextField(labelWithString: L10n.previewUnavailable)
+    /// Purely visual: clicks are hit-tested manually by Flip3DView through the
+    /// card's 3D transform, because AppKit event routing ignores layer transforms.
+    private var controls: [(action: WindowControlAction, view: NSImageView)] = []
+    private let controlsEnabled: Bool
+    private static let controlDiameter: CGFloat = 26
+    private static let controlSpacing: CGFloat = 9
 
     init(window: SwitchableWindow, settings: AppSettings) {
         representedID = window.id
+        controlsEnabled = settings.showWindowControls
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = 18
@@ -72,8 +79,63 @@ final class WindowCardView: NSView {
             titleLabel.trailingAnchor.constraint(equalTo: appLabel.trailingAnchor),
             titleLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 1)
         ])
+        if controlsEnabled { installControls() }
         setAccessibilityElement(true)
         setAccessibilityLabel("\(window.metadata.appName), \(titleLabel.stringValue)")
+    }
+
+    private func installControls() {
+        // .circle.fill variants: the circle is part of the glyph, so every
+        // button gets an identical outline at the same point size.
+        let symbols: [(WindowControlAction, String, String)] = [
+            (.close, "xmark.circle.fill", "Close window"),
+            (.minimize, "minus.circle.fill", "Minimize window"),
+            (.zoom, "arrow.up.left.and.arrow.down.right.circle.fill", "Zoom window")
+        ]
+        controls = symbols.map { action, symbolName, label in
+            let view = NSImageView()
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.imageScaling = .scaleProportionallyUpOrDown
+            view.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
+            view.symbolConfiguration = Self.controlConfiguration(highlighted: false)
+            view.isHidden = true
+            view.setAccessibilityLabel(label)
+            addSubview(view)
+            return (action, view)
+        }
+        for (index, control) in controls.enumerated() {
+            NSLayoutConstraint.activate([
+                control.view.topAnchor.constraint(equalTo: topAnchor, constant: 24),
+                control.view.leadingAnchor.constraint(
+                    equalTo: leadingAnchor,
+                    constant: 24 + CGFloat(index) * (Self.controlDiameter + Self.controlSpacing)
+                ),
+                control.view.widthAnchor.constraint(equalToConstant: Self.controlDiameter),
+                control.view.heightAnchor.constraint(equalToConstant: Self.controlDiameter)
+            ])
+        }
+    }
+
+    /// Hit-tests the control buttons against a point in this card's own
+    /// coordinate space (already mapped through the layer's 3D transform).
+    func controlAction(at point: NSPoint) -> WindowControlAction? {
+        controls.first { !$0.view.isHidden && $0.view.frame.insetBy(dx: -6, dy: -6).contains(point) }?.action
+    }
+
+    func setControlHighlight(_ action: WindowControlAction?) {
+        for control in controls {
+            control.view.symbolConfiguration = Self.controlConfiguration(highlighted: control.action == action)
+        }
+    }
+
+    /// Mono palette: white symbol on a gray circle, brighter circle on hover.
+    private static func controlConfiguration(highlighted: Bool) -> NSImage.SymbolConfiguration {
+        let circle = NSColor(calibratedWhite: highlighted ? 0.44 : 0.24, alpha: highlighted ? 0.98 : 0.92)
+        return NSImage.SymbolConfiguration(pointSize: controlDiameter - 4, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [
+                NSColor.white.withAlphaComponent(0.92),
+                circle
+            ]))
     }
 
     @available(*, unavailable)
@@ -91,5 +153,7 @@ final class WindowCardView: NSView {
             ? NSColor.controlAccentColor.withAlphaComponent(0.95).cgColor
             : NSColor.white.withAlphaComponent(0.25).cgColor
         layer?.shadowOpacity = selected ? 0.75 : 0.45
+        controls.forEach { $0.view.isHidden = !selected }
+        if !selected { setControlHighlight(nil) }
     }
 }

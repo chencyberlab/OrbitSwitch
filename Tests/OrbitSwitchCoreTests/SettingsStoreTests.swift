@@ -77,6 +77,27 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(loaded.showDockIcon)
     }
 
+    func testDecodingToleratesMissingNewFieldsWithoutResettingSettings() throws {
+        var settings = AppSettings()
+        settings.stackAngle = 21
+        settings.backgroundBlur = 40
+        var payload = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any]
+        )
+        payload.removeValue(forKey: "showWindowControls")
+        let data = try JSONSerialization.data(withJSONObject: payload)
+
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
+        XCTAssertTrue(decoded.showWindowControls)
+        XCTAssertEqual(decoded.stackAngle, 21)
+        XCTAssertEqual(decoded.backgroundBlur, 40)
+    }
+
+    func testDecodingRequiresSchemaVersionSoLegacyPayloadsStillMigrate() {
+        let legacy = Data(#"{"shortcuts":{"showNext":{"keyCode":13,"modifiers":4}},"showDockIcon":true}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: legacy))
+    }
+
     func testPersistenceRemovesUnsafeModifierlessGlobalShortcuts() throws {
         let suite = "OrbitSwitchTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

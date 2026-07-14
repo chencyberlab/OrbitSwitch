@@ -5,7 +5,7 @@ import OrbitSwitchCore
 import ScreenCaptureKit
 
 struct SwitchableWindow: Identifiable {
-    let metadata: WindowMetadata
+    var metadata: WindowMetadata
     let appIcon: NSImage?
     var preview: CGImage?
 
