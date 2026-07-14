@@ -12,6 +12,9 @@ final class WindowCardView: NSView {
     /// card's 3D transform, because AppKit event routing ignores layer transforms.
     private var controls: [(action: WindowControlAction, view: NSImageView)] = []
     private let controlsEnabled: Bool
+    private var isSelected = false
+    private var controlsHovered = false
+    private var controlsAreVisible = false
     private static let controlDiameter: CGFloat = 26
     private static let controlSpacing: CGFloat = 9
 
@@ -24,8 +27,8 @@ final class WindowCardView: NSView {
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = false
         layer?.backgroundColor = NSColor(calibratedWhite: 0.10, alpha: 0.98).cgColor
-        layer?.borderWidth = 1.5
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.42).cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
         layer?.shadowColor = NSColor.black.cgColor
         layer?.shadowOpacity = 0.55
         layer?.shadowRadius = 30
@@ -98,7 +101,7 @@ final class WindowCardView: NSView {
             view.imageScaling = .scaleProportionallyUpOrDown
             view.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
             view.symbolConfiguration = Self.controlConfiguration(highlighted: false)
-            view.isHidden = true
+            view.alphaValue = 0
             view.setAccessibilityLabel(label)
             addSubview(view)
             return (action, view)
@@ -119,13 +122,19 @@ final class WindowCardView: NSView {
     /// Hit-tests the control buttons against a point in this card's own
     /// coordinate space (already mapped through the layer's 3D transform).
     func controlAction(at point: NSPoint) -> WindowControlAction? {
-        controls.first { !$0.view.isHidden && $0.view.frame.insetBy(dx: -6, dy: -6).contains(point) }?.action
+        guard controlsAreVisible else { return nil }
+        return controls.first { $0.view.frame.insetBy(dx: -6, dy: -6).contains(point) }?.action
     }
 
     func setControlHighlight(_ action: WindowControlAction?) {
         for control in controls {
             control.view.symbolConfiguration = Self.controlConfiguration(highlighted: control.action == action)
         }
+    }
+
+    func setControlsHovered(_ hovered: Bool) {
+        controlsHovered = hovered
+        updateControlVisibility()
     }
 
     /// Mono palette: white symbol on a gray circle, brighter circle on hover.
@@ -148,12 +157,28 @@ final class WindowCardView: NSView {
     }
 
     func setSelected(_ selected: Bool) {
-        layer?.borderWidth = selected ? 3 : 1.5
-        layer?.borderColor = selected
-            ? NSColor.controlAccentColor.withAlphaComponent(0.95).cgColor
-            : NSColor.white.withAlphaComponent(0.25).cgColor
-        layer?.shadowOpacity = selected ? 0.75 : 0.45
-        controls.forEach { $0.view.isHidden = !selected }
-        if !selected { setControlHighlight(nil) }
+        isSelected = selected
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.white.withAlphaComponent(selected ? 0.22 : 0.12).cgColor
+        layer?.shadowOpacity = selected ? 0.70 : 0.40
+        layer?.shadowRadius = selected ? 34 : 24
+        if !selected {
+            controlsHovered = false
+            setControlHighlight(nil)
+        }
+        updateControlVisibility()
+    }
+
+    private func updateControlVisibility() {
+        let shouldShow = controlsEnabled && isSelected && controlsHovered
+        guard shouldShow != controlsAreVisible else { return }
+        controlsAreVisible = shouldShow
+        if !shouldShow { setControlHighlight(nil) }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.14
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            controls.forEach { $0.view.animator().alphaValue = shouldShow ? 1 : 0 }
+        }
     }
 }

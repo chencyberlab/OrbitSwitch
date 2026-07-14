@@ -10,6 +10,8 @@ final class Flip3DView: NSView {
     private let background = NSView()
     private let backgroundGradient = CAGradientLayer()
     private let emptyLabel = NSTextField(labelWithString: L10n.noWindows)
+    private let positionIndicator = NSVisualEffectView()
+    private let positionLabel = NSTextField(labelWithString: "")
     private var cards: [WindowCardView] = []
     private var windows: [SwitchableWindow] = []
     private var placements: [Flip3DPlacement] = []
@@ -38,13 +40,42 @@ final class Flip3DView: NSView {
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(emptyLabel)
+
+        positionIndicator.material = .hudWindow
+        positionIndicator.blendingMode = .withinWindow
+        positionIndicator.state = .active
+        positionIndicator.wantsLayer = true
+        positionIndicator.layer?.cornerRadius = 14
+        positionIndicator.layer?.cornerCurve = .continuous
+        positionIndicator.layer?.borderWidth = 0.5
+        positionIndicator.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        positionIndicator.layer?.shadowColor = NSColor.black.cgColor
+        positionIndicator.layer?.shadowOpacity = 0.28
+        positionIndicator.layer?.shadowRadius = 10
+        positionIndicator.layer?.shadowOffset = CGSize(width: 0, height: -3)
+        positionIndicator.translatesAutoresizingMaskIntoConstraints = false
+        positionIndicator.isHidden = true
+        addSubview(positionIndicator)
+
+        positionLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        positionLabel.textColor = NSColor.white.withAlphaComponent(0.82)
+        positionLabel.alignment = .center
+        positionLabel.translatesAutoresizingMaskIntoConstraints = false
+        positionIndicator.addSubview(positionLabel)
+
         NSLayoutConstraint.activate([
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
             background.trailingAnchor.constraint(equalTo: trailingAnchor),
             background.topAnchor.constraint(equalTo: topAnchor),
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
+            emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            positionIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            positionIndicator.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -26),
+            positionIndicator.heightAnchor.constraint(equalToConstant: 28),
+            positionLabel.leadingAnchor.constraint(equalTo: positionIndicator.leadingAnchor, constant: 14),
+            positionLabel.trailingAnchor.constraint(equalTo: positionIndicator.trailingAnchor, constant: -14),
+            positionLabel.centerYAnchor.constraint(equalTo: positionIndicator.centerYAnchor)
         ])
     }
 
@@ -57,6 +88,7 @@ final class Flip3DView: NSView {
         self.settings = settings
         updateBackgroundDimming(settings.backgroundBlur)
         self.selection = Flip3DLayout.wrappedIndex(selection, count: windows.count)
+        updatePositionIndicator()
         lastLayoutSize = .zero
         cards = windows.map { window in
             let card = WindowCardView(window: window, settings: settings)
@@ -80,6 +112,7 @@ final class Flip3DView: NSView {
 
     func updateSelection(_ selection: Int) {
         self.selection = Flip3DLayout.wrappedIndex(selection, count: windows.count)
+        updatePositionIndicator()
         layoutCards(animated: true)
     }
 
@@ -161,14 +194,17 @@ final class Flip3DView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         let selectedCard = cards[selection]
         guard let hit = cardHit(at: point), hit.index == selection else {
+            selectedCard.setControlsHovered(false)
             selectedCard.setControlHighlight(nil)
             return
         }
+        selectedCard.setControlsHovered(true)
         selectedCard.setControlHighlight(selectedCard.controlAction(at: hit.localPoint))
     }
 
     override func mouseExited(with event: NSEvent) {
         guard cards.indices.contains(selection) else { return }
+        cards[selection].setControlsHovered(false)
         cards[selection].setControlHighlight(nil)
     }
 
@@ -255,6 +291,16 @@ final class Flip3DView: NSView {
             )
         }
         CATransaction.commit()
+    }
+
+    private func updatePositionIndicator() {
+        guard windows.count > 1 else {
+            positionIndicator.isHidden = true
+            return
+        }
+        positionLabel.stringValue = "\(selection + 1)  /  \(windows.count)"
+        positionLabel.setAccessibilityLabel("Window \(selection + 1) of \(windows.count)")
+        positionIndicator.isHidden = false
     }
 
     private func updateBackgroundDimming(_ percentage: Double) {

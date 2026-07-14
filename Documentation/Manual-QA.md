@@ -44,6 +44,9 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Left/up moves backward; right/down and Tab move forward.
 - [ ] Mouse wheel and trackpad scrolling move in both directions without excessive repeats.
 - [ ] Clicking a background card selects it; clicking the selected card confirms.
+- [ ] The selected card uses neutral elevation without an accent-colored outline.
+- [ ] Window controls fade in only while the pointer is over the selected card and disappear when it leaves.
+- [ ] The bottom position capsule follows selection and wrapping, and stays hidden for zero or one window.
 - [ ] Empty, one-window, and thirty-plus-window sets remain usable.
 - [ ] Closing a selected window while the overlay is open fails safely.
 - [ ] A minimized window restores when macOS exposes it through Accessibility.
