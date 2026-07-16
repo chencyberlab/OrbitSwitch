@@ -147,7 +147,15 @@ final class SwitcherOverlayController {
             guard let self, self.presentationRevision == revision, case .visible = self.state else { return }
             panelsToReveal.compactMap { $0.contentView as? Flip3DView }.forEach { $0.prepareForPresentation() }
             CATransaction.flush()
-            panelsToReveal.forEach { $0.alphaValue = 1 }
+            let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            for panel in panelsToReveal {
+                (panel.contentView as? Flip3DView)?.animateMaterializeIn(reduceMotion: reduceMotion)
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = reduceMotion ? 0.12 : 0.2
+                    context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    panel.animator().alphaValue = 1
+                }, completionHandler: nil)
+            }
         }
         if activateWhenReady {
             activateWhenReady = false
@@ -215,9 +223,23 @@ final class SwitcherOverlayController {
         panels.compactMap { $0.contentView as? Flip3DView }.forEach { $0.updateSelection(selection) }
     }
 
+    /// Fades and settles each panel back, then orders it out. Callers are not
+    /// blocked on the animation, so confirming a window activates it while the
+    /// overlay is still leaving — the inverse of the arrival, along the same path.
     private func closePanels() {
-        panels.forEach { $0.orderOut(nil) }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let outgoing = panels
         panels.removeAll()
+        for panel in outgoing {
+            (panel.contentView as? Flip3DView)?.animateMaterializeOut(reduceMotion: reduceMotion)
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = reduceMotion ? 0.1 : 0.16
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().alphaValue = 0
+            }, completionHandler: {
+                panel.orderOut(nil)
+            })
+        }
     }
 
     private func clear() {

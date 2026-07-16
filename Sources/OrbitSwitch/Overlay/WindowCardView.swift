@@ -158,8 +158,11 @@ final class WindowCardView: NSView {
 
     func setSelected(_ selected: Bool) {
         isSelected = selected
-        layer?.borderWidth = 1
-        layer?.borderColor = NSColor.white.withAlphaComponent(selected ? 0.22 : 0.12).cgColor
+        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        layer?.borderWidth = increaseContrast ? 1.5 : 1
+        layer?.borderColor = NSColor.white.withAlphaComponent(
+            selected ? (increaseContrast ? 0.75 : 0.22) : (increaseContrast ? 0.45 : 0.12)
+        ).cgColor
         layer?.shadowOpacity = selected ? 0.70 : 0.40
         layer?.shadowRadius = selected ? 34 : 24
         if !selected {

@@ -43,12 +43,9 @@ final class Flip3DView: NSView {
 
         positionIndicator.material = .hudWindow
         positionIndicator.blendingMode = .withinWindow
-        positionIndicator.state = .active
         positionIndicator.wantsLayer = true
         positionIndicator.layer?.cornerRadius = 14
         positionIndicator.layer?.cornerCurve = .continuous
-        positionIndicator.layer?.borderWidth = 0.5
-        positionIndicator.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
         positionIndicator.layer?.shadowColor = NSColor.black.cgColor
         positionIndicator.layer?.shadowOpacity = 0.28
         positionIndicator.layer?.shadowRadius = 10
@@ -56,6 +53,7 @@ final class Flip3DView: NSView {
         positionIndicator.translatesAutoresizingMaskIntoConstraints = false
         positionIndicator.isHidden = true
         addSubview(positionIndicator)
+        updateIndicatorAccessibility()
 
         positionLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         positionLabel.textColor = NSColor.white.withAlphaComponent(0.82)
@@ -124,6 +122,33 @@ final class Flip3DView: NSView {
         layoutCards(animated: false)
         displayIfNeeded()
         CATransaction.flush()
+    }
+
+    /// Arrival and dismissal share one path: the whole surface scales slightly
+    /// while the panel fades, so it reads as a material arriving and leaving
+    /// rather than an opaque pop. Under Reduce Motion the scale step is dropped
+    /// and only the controller's cross-fade remains.
+    func animateMaterializeIn(reduceMotion: Bool) {
+        guard let layer, !reduceMotion else { return }
+        let spring = SpringAnimation.make(keyPath: "transform", response: 0.38)
+        spring.fromValue = NSValue(caTransform3D: CATransform3DMakeScale(0.94, 0.94, 1))
+        spring.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        layer.add(spring, forKey: "orbit.materialize")
+    }
+
+    func animateMaterializeOut(reduceMotion: Bool) {
+        guard let layer, !reduceMotion else { return }
+        let target = CATransform3DMakeScale(0.96, 0.96, 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.transform = target
+        CATransaction.commit()
+        let shrink = CABasicAnimation(keyPath: "transform")
+        shrink.fromValue = NSValue(caTransform3D: CATransform3DIdentity)
+        shrink.toValue = NSValue(caTransform3D: target)
+        shrink.duration = 0.14
+        shrink.timingFunction = CAMediaTimingFunction(name: .easeIn)
+        layer.add(shrink, forKey: "orbit.materialize")
     }
 
     override func layout() {
@@ -303,6 +328,22 @@ final class Flip3DView: NSView {
         positionIndicator.isHidden = false
     }
 
+    /// Honors Reduce Transparency (solid surface instead of vibrancy) and
+    /// Increase Contrast (stronger border) on the floating position indicator.
+    private func updateIndicatorAccessibility() {
+        let workspace = NSWorkspace.shared
+        if workspace.accessibilityDisplayShouldReduceTransparency {
+            positionIndicator.state = .inactive
+            positionIndicator.layer?.backgroundColor = NSColor(calibratedWhite: 0.07, alpha: 0.95).cgColor
+        } else {
+            positionIndicator.state = .active
+            positionIndicator.layer?.backgroundColor = nil
+        }
+        let increaseContrast = workspace.accessibilityDisplayShouldIncreaseContrast
+        positionIndicator.layer?.borderWidth = increaseContrast ? 1 : 0.5
+        positionIndicator.layer?.borderColor = NSColor.white.withAlphaComponent(increaseContrast ? 0.5 : 0.14).cgColor
+    }
+
     private func updateBackgroundDimming(_ percentage: Double) {
         let amount = min(0.85, max(0, percentage / 100))
         backgroundGradient.colors = [
@@ -322,18 +363,29 @@ final class Flip3DView: NSView {
         CATransaction.commit()
         guard animated else { return }
 
-        let duration = reduceMotion ? 0.12 : settings.animationDuration
-        let transformAnimation = CABasicAnimation(keyPath: "transform")
-        transformAnimation.fromValue = NSValue(caTransform3D: previousTransform)
-        transformAnimation.toValue = NSValue(caTransform3D: transform)
-        transformAnimation.duration = duration
-        transformAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(transformAnimation, forKey: "orbit.transform")
+        // Reduced motion means a gentler equivalent, not less feedback:
+        // cross-fade instead of moving cards through space.
+        guard !reduceMotion else {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = previousOpacity
+            fade.toValue = opacity
+            fade.duration = 0.12
+            layer.add(fade, forKey: "orbit.opacity")
+            return
+        }
+
+        // A critically damped spring re-targeted from the live presentation
+        // value: held-down keys interrupt mid-flight and the motion retargets
+        // gracefully instead of restarting a fixed-duration ease curve.
+        let spring = SpringAnimation.make(keyPath: "transform", response: settings.animationDuration)
+        spring.fromValue = NSValue(caTransform3D: previousTransform)
+        spring.toValue = NSValue(caTransform3D: transform)
+        layer.add(spring, forKey: "orbit.transform")
 
         let opacityAnimation = CABasicAnimation(keyPath: "opacity")
         opacityAnimation.fromValue = previousOpacity
         opacityAnimation.toValue = opacity
-        opacityAnimation.duration = min(duration, 0.18)
+        opacityAnimation.duration = min(settings.animationDuration, 0.18)
         layer.add(opacityAnimation, forKey: "orbit.opacity")
     }
 }
