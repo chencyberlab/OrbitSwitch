@@ -152,6 +152,13 @@ final class WindowCardView: NSView {
 
     func updatePreview(_ preview: CGImage?) {
         guard let preview else { return }
+        // Previews arrive asynchronously, one by one. A short cross-fade makes
+        // each arrival read as continuous motion instead of a hard cut, and a
+        // fade stays within what Reduced Motion allows.
+        let transition = CATransition()
+        transition.type = .fade
+        transition.duration = 0.16
+        imageView.layer?.add(transition, forKey: "orbit.previewFade")
         imageView.image = NSImage(cgImage: preview, size: .zero)
         fallbackLabel.isHidden = true
     }
