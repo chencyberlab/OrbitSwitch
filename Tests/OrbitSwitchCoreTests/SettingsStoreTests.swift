@@ -10,6 +10,45 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(settings.schemaVersion, 2)
     }
 
+    func testDefaultsKeepTheOrbitStyleForExistingUsers() {
+        let settings = AppSettings()
+        XCTAssertEqual(settings.overlayStyle, .orbit)
+        XCTAssertEqual(settings.sidebarEdge, .left)
+        XCTAssertEqual(settings.sidebarVisibleCount, 7)
+    }
+
+    func testPersistenceClampsOutOfRangeSidebarValues() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.sidebarVisibleCount = 99
+        settings.sidebarTileWidth = 4000
+        persistence.save(settings)
+
+        let loaded = persistence.load()
+        XCTAssertEqual(loaded.sidebarVisibleCount, SidebarLayout.visibleCountRange.upperBound)
+        XCTAssertEqual(loaded.sidebarTileWidth, SidebarLayout.tileWidthRange.upperBound)
+    }
+
+    func testDecodingSettingsWrittenBeforeTheSidebarStyleExisted() throws {
+        var settings = AppSettings()
+        settings.stackAngle = 21
+        var payload = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any]
+        )
+        ["overlayStyle", "sidebarEdge", "sidebarVisibleCount", "sidebarTileWidth"].forEach {
+            payload.removeValue(forKey: $0)
+        }
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertEqual(decoded.overlayStyle, .orbit)
+        XCTAssertEqual(decoded.sidebarEdge, .left)
+        XCTAssertEqual(decoded.sidebarVisibleCount, 7)
+        XCTAssertEqual(decoded.sidebarTileWidth, 260)
+        XCTAssertEqual(decoded.stackAngle, 21)
+    }
+
     func testPersistenceRoundTrip() throws {
         let suite = "OrbitSwitchTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

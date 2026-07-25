@@ -48,6 +48,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Window controls fade in only while the pointer is over the selected card and disappear when it leaves.
 - [ ] The bottom position capsule follows selection and wrapping, and stays hidden for zero or one window.
 - [ ] Empty, one-window, and thirty-plus-window sets remain usable.
+- [ ] With more than sixteen windows open, selecting one past the sixteenth still fills in a preview shortly after it is selected, in both styles.
 - [ ] Closing a selected window while the overlay is open fails safely.
 - [ ] A minimized window restores when macOS exposes it through Accessibility.
 - [ ] With Include Minimized enabled, minimized windows appear; with it disabled, they do not.
@@ -59,10 +60,29 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Multiple comma-separated excluded bundle identifiers can be typed and applied with Return.
 - [ ] Full-screen apps can show the auxiliary overlay and dismiss it cleanly.
 
+## Sidebar style
+
+- [ ] Switching the style in Settings → Appearance takes effect the next time the switcher opens, with no relaunch.
+- [ ] The strip appears on the same display the Orbit stack would use for Active, Pointer, and All Displays.
+- [ ] Left and right edges both position the strip and lean the selected tile toward the screen.
+- [ ] The strip clears the menu bar, and clears the Dock with the Dock on the left, right, and bottom.
+- [ ] Tab keeps cycling past the last tile and wraps to the first; Option-Shift-Tab wraps backward.
+- [ ] With more windows than tiles, the strip scrolls to keep the selection visible and the end tiles fade.
+- [ ] With fewer windows than the configured count, all tiles show and none are faded.
+- [ ] Windows On Screen and Tile Width apply as labeled; a short display shows fewer, not clipped, tiles.
+- [ ] The position capsule stays under the strip for both few and many windows.
+- [ ] Clicking a tile selects it, clicking the selected tile confirms, and clicking the desktop dismisses.
+- [ ] Window controls appear on hover over the selected tile and act on the right window.
+- [ ] Scroll and arrow keys move the selection in both directions.
+- [ ] Empty, one-window, and thirty-plus-window sets remain usable.
+- [ ] Reduce Motion, Reduce Transparency, and Increase Contrast behave as they do in the Orbit style.
+- [ ] VoiceOver reads each tile as app name followed by window title.
+
 ## Displays and Spaces
 
 - [ ] Active Display, Pointer Display, and All Displays behave as labeled.
 - [ ] Changing the primary display and disconnecting a display before the next invocation does not crash.
+- [ ] Disconnecting a display or changing resolution while the overlay is visible dismisses it instead of stranding a panel.
 - [ ] All Displays accepts keyboard input on the primary overlay and mirrors selection elsewhere.
 - [ ] Current Space Only excludes off-Space windows where public APIs expose that state.
 - [ ] Switch between several Spaces and verify stale windows do not crash activation.
@@ -70,6 +90,8 @@ Use a signed build whose identity matches the intended test build. Record the ma
 ## Accessibility and appearance
 
 - [ ] VoiceOver reads each card as app name followed by window title.
+- [ ] VoiceOver announces each selection change as the switcher is cycled, once per change with All Displays enabled.
+- [ ] The empty-state message is legible in Light, Dark, and System themes.
 - [ ] Reduce Motion removes the perspective movement and uses a short transition.
 - [ ] Increase Contrast keeps selection borders and labels legible.
 - [ ] Light, Dark, and System themes update Settings and overlay cards.

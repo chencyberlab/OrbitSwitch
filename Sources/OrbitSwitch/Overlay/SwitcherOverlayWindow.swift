@@ -4,7 +4,7 @@ final class SwitcherOverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    init(screen: NSScreen, content: Flip3DView) {
+    init(screen: NSScreen, content: SwitcherSurfaceView) {
         super.init(
             contentRect: screen.frame,
             styleMask: [.borderless, .nonactivatingPanel],

@@ -1,6 +1,6 @@
 # OrbitSwitch
 
-OrbitSwitch is a native macOS menu bar utility inspired by the spatial feel of classic 3D window switchers. It presents eligible windows in an original perspective stack, supports configurable global shortcuts, and keeps all window data on the Mac.
+OrbitSwitch is a native macOS menu bar utility inspired by the spatial feel of classic 3D window switchers. It presents eligible windows either as an original perspective stack or as a Stage Manager-style strip along one edge of the display, supports configurable global shortcuts, and keeps all window data on the Mac.
 
 ## Requirements
 
@@ -74,13 +74,22 @@ Permission state and direct links to Privacy & Security are available under **Se
 
 The default forward shortcut is Option-Tab and the reverse shortcut is Option-Shift-Tab. Hold Option and press Tab repeatedly to cycle; releasing Tab keeps the switcher open, while releasing Option activates the selected window. Command-Tab is deliberately not used. Record new shortcuts under **Settings → Shortcuts**; press Delete while recording to clear a binding.
 
+## Switcher styles
+
+**Settings → Appearance** chooses how the switcher looks. Both styles use the same window list, shortcuts, mouse and scroll navigation, and window controls; only the arrangement differs, and the choice applies the next time the switcher opens.
+
+- **Orbit** is the perspective staircase: one large card front and center with the rest receding toward a vanishing point.
+- **Sidebar** is a vertical strip of compact tiles docked to one edge of the display, in the spirit of Stage Manager. Choose the **left** or **right** edge, how many windows are on screen at once (3–12), and the tile width. The strip appears on the display the switcher opened on, and stays clear of the menu bar and the Dock.
+
+Tab keeps cycling through every window in both styles. In Sidebar, when more windows are open than tiles fit, the strip scrolls to keep the selection in view and the tiles at each end fade to show that the list continues. On a short display OrbitSwitch narrows the tiles to honor the requested count, and shows fewer tiles only when they would otherwise become unreadably small.
+
 ## Privacy and security
 
 - Window titles and thumbnails are processed locally and never transmitted.
 - Thumbnails are held in memory only, limited to the first visible stack entries, and discarded when the overlay closes.
 - The app has no analytics, networking, or update telemetry.
 - No captured image is written to disk.
-- Only public Apple frameworks are used: AppKit, Core Graphics, ScreenCaptureKit, Accessibility, Carbon HIToolbox, SwiftUI, and ServiceManagement.
+- Only Apple frameworks are used, all public: AppKit, Core Graphics, ScreenCaptureKit, Accessibility, Carbon HIToolbox, SwiftUI, and ServiceManagement. One undocumented Accessibility symbol, `_AXUIElementGetWindow`, is used to match a window element to its window ID because no public equivalent exists; it is confined to `AccessibilityWindowController` and falls back to title matching. See [Architecture.md](Documentation/Architecture.md).
 
 ## Distribution signing
 
@@ -89,12 +98,13 @@ The default forward shortcut is Option-Tab and the reverse shortcut is Option-Sh
 ## Known limitations
 
 - Protected video and DRM content may return no preview; OrbitSwitch shows its normal fallback card.
-- Static thumbnails refresh progressively when the switcher opens rather than streaming continuously; protected or unavailable windows retain their title/icon fallback.
+- Static thumbnails refresh progressively when the switcher opens rather than streaming continuously; protected or unavailable windows retain their title/icon fallback. Beyond the first sixteen windows a preview is captured when that window is selected, so it appears a moment after the selection lands.
 - Minimized windows are included by default and can be disabled under **Settings → Windows**. Accessibility permission lets OrbitSwitch positively identify them; without it, unknown off-screen windows are excluded to avoid listing background utilities and menu-bar-only apps.
 - ScreenCaptureKit may not provide snapshots for minimized windows, so those entries can use title/icon fallback cards until restored.
 - Accessibility identifies a target window by its public title attribute. Untitled or identically titled windows can fall back to application activation.
 - macOS and third-party utilities can reserve a global shortcut. OrbitSwitch reports registration failures and preserves the last working shortcut.
 - “All Displays” mirrors the same stack on each display. It does not create a different window set per display.
+- In the Sidebar style, clicking the uncovered desktop dismisses the switcher, because most of the screen is not part of the strip.
 - Background Dimming is a percentage-based translucent overlay. OrbitSwitch intentionally avoids a live system blur because full-screen blur redraws caused visible flicker during navigation.
 - Launch at Login registration can be unavailable for an ad-hoc development bundle and should be validated in a Developer ID signed release.
 

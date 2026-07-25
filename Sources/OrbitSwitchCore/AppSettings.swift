@@ -18,6 +18,30 @@ public enum ThumbnailQuality: String, Codable, CaseIterable, Identifiable, Senda
     }
 }
 
+/// The overlay presentation the switcher uses. Both styles share one window
+/// list, one selection model, and one set of shortcuts; only the arrangement
+/// on screen differs.
+public enum OverlayStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// The perspective staircase: cards recede toward a vanishing point.
+    case orbit
+    /// A vertical strip of tiles docked to one edge of the active display.
+    case sidebar
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self { case .orbit: "Orbit" case .sidebar: "Sidebar" }
+    }
+}
+
+public enum SidebarEdge: String, Codable, CaseIterable, Identifiable, Sendable {
+    case left, right
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self { case .left: "Left" case .right: "Right" }
+    }
+}
+
 public struct AppSettings: Codable, Equatable, Sendable {
     public var schemaVersion = 2
     public var launchAtLogin = false
@@ -25,6 +49,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var showDockIcon = false
     public var shortcutsPaused = false
     public var shortcuts: [ShortcutAction: ShortcutDefinition] = Self.defaultShortcuts
+
+    public var overlayStyle = OverlayStyle.orbit
+    public var sidebarEdge = SidebarEdge.left
+    public var sidebarVisibleCount = 7
+    public var sidebarTileWidth = 260.0
 
     public var perspectiveStrength = 0.00115
     public var stackAngle = 13.0
@@ -66,6 +95,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
         showDockIcon = try container.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? defaults.showDockIcon
         shortcutsPaused = try container.decodeIfPresent(Bool.self, forKey: .shortcutsPaused) ?? defaults.shortcutsPaused
         shortcuts = try container.decodeIfPresent([ShortcutAction: ShortcutDefinition].self, forKey: .shortcuts) ?? defaults.shortcuts
+        overlayStyle = try container.decodeIfPresent(OverlayStyle.self, forKey: .overlayStyle) ?? defaults.overlayStyle
+        sidebarEdge = try container.decodeIfPresent(SidebarEdge.self, forKey: .sidebarEdge) ?? defaults.sidebarEdge
+        sidebarVisibleCount = try container.decodeIfPresent(Int.self, forKey: .sidebarVisibleCount) ?? defaults.sidebarVisibleCount
+        sidebarTileWidth = try container.decodeIfPresent(Double.self, forKey: .sidebarTileWidth) ?? defaults.sidebarTileWidth
         perspectiveStrength = try container.decodeIfPresent(Double.self, forKey: .perspectiveStrength) ?? defaults.perspectiveStrength
         stackAngle = try container.decodeIfPresent(Double.self, forKey: .stackAngle) ?? defaults.stackAngle
         cardSpacing = try container.decodeIfPresent(Double.self, forKey: .cardSpacing) ?? defaults.cardSpacing
@@ -153,6 +186,16 @@ public final class SettingsPersistence {
         for action in ShortcutAction.allCases where action != .dismiss {
             guard let shortcut = settings.shortcuts[action], !shortcut.isSuitableForGlobalRegistration else { continue }
             settings.shortcuts[action] = nil
+            changed = true
+        }
+        let visibleCount = SidebarLayout.clampedVisibleCount(settings.sidebarVisibleCount)
+        if visibleCount != settings.sidebarVisibleCount {
+            settings.sidebarVisibleCount = visibleCount
+            changed = true
+        }
+        let tileWidth = SidebarLayout.clampedTileWidth(settings.sidebarTileWidth)
+        if tileWidth != settings.sidebarTileWidth {
+            settings.sidebarTileWidth = tileWidth
             changed = true
         }
         return changed

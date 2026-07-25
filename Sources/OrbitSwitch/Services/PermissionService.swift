@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 
-struct PermissionStatus {
+struct PermissionStatus: Equatable {
     let accessibility: Bool
     let screenRecording: Bool
 }

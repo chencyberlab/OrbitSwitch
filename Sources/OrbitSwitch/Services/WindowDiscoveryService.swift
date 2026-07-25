@@ -41,7 +41,27 @@ final class WindowDiscoveryService: WindowDiscovering {
             : [.optionAll, .excludeDesktopElements]
         guard let dictionaries = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
 
-        var metadata = dictionaries.compactMap(Self.metadata(from:))
+        // The window list holds every layer on screen — often a few hundred
+        // entries across a couple of dozen processes — and each entry needs its
+        // owning application twice (policy and bundle ID during filtering, icon
+        // afterward). Memoizing per PID keeps that to one lookup per process on
+        // the path that runs before the overlay's first frame.
+        var applicationsByPID: [pid_t: NSRunningApplication?] = [:]
+        func application(for pid: pid_t) -> NSRunningApplication? {
+            if let cached = applicationsByPID[pid] { return cached }
+            let application = NSRunningApplication(processIdentifier: pid)
+            applicationsByPID[pid] = application
+            return application
+        }
+        var iconsByPID: [pid_t: NSImage?] = [:]
+        func icon(for pid: pid_t) -> NSImage? {
+            if let cached = iconsByPID[pid] { return cached }
+            let icon = application(for: pid)?.icon
+            iconsByPID[pid] = icon
+            return icon
+        }
+
+        var metadata = dictionaries.compactMap { Self.metadata(from: $0, application: application) }
         var minimizedWindows = Self.accessibilityWindowStates(
             for: Set(metadata.lazy.filter {
                 !$0.isOnScreen && $0.ownerPID != getpid() && $0.isRegularApplication && $0.layer == 0
@@ -57,8 +77,11 @@ final class WindowDiscoveryService: WindowDiscovering {
         }
         let eligible = WindowFilter.filtered(metadata, settings: settings, ownPID: getpid())
         return eligible.map { item in
-            let app = NSRunningApplication(processIdentifier: item.ownerPID)
-            return SwitchableWindow(metadata: item, appIcon: app?.icon, preview: previewCache.image(for: item.id))
+            SwitchableWindow(
+                metadata: item,
+                appIcon: icon(for: item.ownerPID),
+                preview: previewCache.image(for: item.id)
+            )
         }
     }
 
@@ -120,13 +143,16 @@ final class WindowDiscoveryService: WindowDiscovering {
 
     private static let maxConcurrentCaptures = 3
 
-    private static func metadata(from dictionary: [String: Any]) -> WindowMetadata? {
+    private static func metadata(
+        from dictionary: [String: Any],
+        application: (pid_t) -> NSRunningApplication?
+    ) -> WindowMetadata? {
         guard let number = dictionary[kCGWindowNumber as String] as? NSNumber,
               let ownerPID = dictionary[kCGWindowOwnerPID as String] as? NSNumber,
               let ownerName = dictionary[kCGWindowOwnerName as String] as? String,
               let boundsDictionary = dictionary[kCGWindowBounds as String] as? NSDictionary,
               let frame = CGRect(dictionaryRepresentation: boundsDictionary) else { return nil }
-        let runningApp = NSRunningApplication(processIdentifier: pid_t(ownerPID.intValue))
+        let runningApp = application(pid_t(ownerPID.intValue))
         return WindowMetadata(
             id: CGWindowID(number.uint32Value),
             ownerPID: pid_t(ownerPID.intValue),

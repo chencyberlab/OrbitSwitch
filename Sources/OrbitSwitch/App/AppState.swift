@@ -67,7 +67,9 @@ final class AppState: ObservableObject {
     }
 
     func refreshPermissions() {
-        permissionStatus = PermissionService.status
+        let status = PermissionService.status
+        guard status != permissionStatus else { return }
+        permissionStatus = status
     }
 
     func showOnboarding() {
@@ -219,16 +221,34 @@ final class AppState: ObservableObject {
 
     private func installWorkspaceObservers() {
         guard workspaceObservers.isEmpty else { return }
-        let center = NSWorkspace.shared.notificationCenter
-        let names: [Notification.Name] = [
-            NSWorkspace.sessionDidResignActiveNotification,
-            NSWorkspace.screensDidSleepNotification
-        ]
-        workspaceObservers = names.map { name in
+        let dismissOnNotification: (Notification.Name, NotificationCenter) -> NSObjectProtocol = { name, center in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.dismissSwitcher() }
             }
         }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        workspaceObservers = [
+            NSWorkspace.sessionDidResignActiveNotification,
+            NSWorkspace.screensDidSleepNotification
+        ].map { dismissOnNotification($0, workspaceCenter) }
+        // Panels are sized to the screens present when the switcher opened, so
+        // unplugging or rearranging a display mid-session would leave one on a
+        // screen that no longer exists. Screen parameters post to the default
+        // center, not the workspace one.
+        workspaceObservers.append(
+            dismissOnNotification(NSApplication.didChangeScreenParametersNotification, .default)
+        )
+        // Granting a permission happens in System Settings, so the state that
+        // Settings and the menu show is only stale until the user comes back.
+        workspaceObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refreshPermissions() }
+            }
+        )
     }
 
     private func applyAppearance(_ settings: AppSettings) {

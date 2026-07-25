@@ -55,11 +55,16 @@ chmod +x "$APP_PATH/Contents/MacOS/OrbitSwitch"
 plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "$APP_PATH/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP_PATH/Contents/Info.plist"
 
-CODESIGN_ARGS=(--force --sign "$SIGNING_IDENTITY" --timestamp=none)
+CODESIGN_ARGS=(--force --sign "$SIGNING_IDENTITY")
 if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+  # An ad-hoc signature cannot be timestamped, and skipping the timestamp
+  # server keeps offline development builds fast.
+  CODESIGN_ARGS+=(--timestamp=none)
   plutil -replace OrbitSwitchSigningMode -string ad-hoc "$APP_PATH/Contents/Info.plist"
 else
-  CODESIGN_ARGS+=(--options runtime)
+  # Notarization rejects a hardened-runtime signature without a secure
+  # timestamp, so a real identity always gets one.
+  CODESIGN_ARGS+=(--timestamp --options runtime)
   plutil -replace OrbitSwitchSigningMode -string stable-identity "$APP_PATH/Contents/Info.plist"
 fi
 codesign "${CODESIGN_ARGS[@]}" "$APP_PATH"

@@ -10,7 +10,7 @@ enum SwitcherMode {
 @MainActor
 final class SwitcherOverlayController {
     enum State: Equatable {
-        case idle, preparing, visible(selection: Int), activating, dismissing, permissionBlocked
+        case idle, preparing, visible(selection: Int), activating, dismissing
     }
 
     private(set) var state = State.idle
@@ -23,6 +23,7 @@ final class SwitcherOverlayController {
     private var pendingOffset = 0
     private var activateWhenReady = false
     private var presentationRevision = 0
+    private var previewFill: Task<Void, Never>?
 
     init(discovery: WindowDiscovering = WindowDiscoveryService(), activator: WindowActivating = AccessibilityWindowController()) {
         self.discovery = discovery
@@ -33,7 +34,7 @@ final class SwitcherOverlayController {
         switch state {
         case .visible(let selection): move(to: selection + 1)
         case .preparing: pendingOffset += 1
-        case .idle, .permissionBlocked: prepare(settings: settings, mode: mode)
+        case .idle: prepare(settings: settings, mode: mode)
         case .activating, .dismissing: break
         }
     }
@@ -70,7 +71,7 @@ final class SwitcherOverlayController {
     }
 
     private func prepare(settings: AppSettings, mode: SwitcherMode, initialOffset: Int = 0) {
-        guard state == .idle || state == .permissionBlocked else { return }
+        guard state == .idle else { return }
         state = .preparing
         self.settings = settings
         pendingOffset = initialOffset
@@ -94,7 +95,7 @@ final class SwitcherOverlayController {
                 if let index = self.windows.firstIndex(where: { $0.id == id }) {
                     self.windows[index].preview = image
                 }
-                self.panels.compactMap { $0.contentView as? Flip3DView }.forEach {
+                self.panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach {
                     $0.updatePreview(id: id, image: image)
                 }
             }
@@ -116,7 +117,10 @@ final class SwitcherOverlayController {
         case .all: targetScreens = availableScreens
         }
         panels = targetScreens.map { screen in
-            let view = Flip3DView(frame: screen.frame)
+            let view: SwitcherSurfaceView = switch settings.overlayStyle {
+            case .orbit: Flip3DView(frame: screen.frame)
+            case .sidebar: SidebarView(frame: screen.frame)
+            }
             let initialSelection = Flip3DLayout.wrappedIndex(pendingOffset, count: windows.count)
             view.configure(windows: windows, selection: initialSelection, settings: settings)
             view.onMove = { [weak self] offset in
@@ -138,6 +142,7 @@ final class SwitcherOverlayController {
         if let view = panels.first?.contentView { panels.first?.makeFirstResponder(view) }
         let initialSelection = Flip3DLayout.wrappedIndex(pendingOffset, count: windows.count)
         state = .visible(selection: initialSelection)
+        announceSelection(initialSelection)
         pendingOffset = 0
         presentationRevision += 1
         let revision = presentationRevision
@@ -145,11 +150,11 @@ final class SwitcherOverlayController {
         Task { @MainActor [weak self] in
             await Task.yield()
             guard let self, self.presentationRevision == revision, case .visible = self.state else { return }
-            panelsToReveal.compactMap { $0.contentView as? Flip3DView }.forEach { $0.prepareForPresentation() }
+            panelsToReveal.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach { $0.prepareForPresentation() }
             CATransaction.flush()
             let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             for panel in panelsToReveal {
-                (panel.contentView as? Flip3DView)?.animateMaterializeIn(reduceMotion: reduceMotion)
+                (panel.contentView as? SwitcherSurfaceView)?.animateMaterializeIn(reduceMotion: reduceMotion)
                 NSAnimationContext.runAnimationGroup({ context in
                     context.duration = reduceMotion ? 0.12 : 0.2
                     context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -194,7 +199,7 @@ final class SwitcherOverlayController {
         let adjusted = index < currentSelection ? currentSelection - 1 : currentSelection
         let selection = Flip3DLayout.wrappedIndex(adjusted, count: windows.count)
         state = .visible(selection: selection)
-        panels.compactMap { $0.contentView as? Flip3DView }.forEach {
+        panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach {
             $0.configure(windows: windows, selection: selection, settings: settings)
         }
     }
@@ -209,7 +214,7 @@ final class SwitcherOverlayController {
                 if let index = self.windows.firstIndex(where: { $0.id == id }) {
                     self.windows[index].preview = image
                 }
-                self.panels.compactMap { $0.contentView as? Flip3DView }.forEach {
+                self.panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach {
                     $0.updatePreview(id: id, image: image)
                 }
             }
@@ -220,7 +225,54 @@ final class SwitcherOverlayController {
         guard !windows.isEmpty else { return }
         let selection = Flip3DLayout.wrappedIndex(proposedSelection, count: windows.count)
         state = .visible(selection: selection)
-        panels.compactMap { $0.contentView as? Flip3DView }.forEach { $0.updateSelection(selection) }
+        panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach { $0.updateSelection(selection) }
+        announceSelection(selection)
+        fillMissingPreview(at: selection)
+    }
+
+    /// The overlay is a non-activating panel, so moving the selection changes
+    /// nothing VoiceOver would otherwise notice — and with mirrored panels the
+    /// announcement has to come from here, once, rather than from each view.
+    /// Only posted when VoiceOver is actually listening.
+    private func announceSelection(_ selection: Int) {
+        guard NSWorkspace.shared.isVoiceOverEnabled, windows.indices.contains(selection) else { return }
+        let window = windows[selection].metadata
+        let title = window.title.isEmpty ? "Untitled Window" : window.title
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: "\(window.appName), \(title), \(selection + 1) of \(windows.count)",
+                .priority: NSAccessibilityPriorityLevel.high.rawValue
+            ]
+        )
+    }
+
+    /// The opening capture covers a bounded prefix of the window list, but the
+    /// selected window is always on screen in both styles — so past that prefix
+    /// it would keep its title/icon fallback forever. Capture the selection on
+    /// demand instead, debounced so holding the shortcut down does not queue a
+    /// capture for every window it passes through.
+    private func fillMissingPreview(at selection: Int) {
+        guard PermissionService.status.screenRecording,
+              windows.indices.contains(selection),
+              windows[selection].preview == nil else { return }
+        let target = windows[selection]
+        let settings = settings
+        previewFill?.cancel()
+        previewFill = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 140_000_000)
+            guard !Task.isCancelled, let self, case .visible = self.state else { return }
+            await self.discovery.capturePreviews(for: [target], settings: settings) { [weak self] id, image in
+                guard let self, !Task.isCancelled, case .visible = self.state else { return }
+                if let index = self.windows.firstIndex(where: { $0.id == id }) {
+                    self.windows[index].preview = image
+                }
+                self.panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach {
+                    $0.updatePreview(id: id, image: image)
+                }
+            }
+        }
     }
 
     /// Fades and settles each panel back, then orders it out. Callers are not
@@ -231,7 +283,7 @@ final class SwitcherOverlayController {
         let outgoing = panels
         panels.removeAll()
         for panel in outgoing {
-            (panel.contentView as? Flip3DView)?.animateMaterializeOut(reduceMotion: reduceMotion)
+            (panel.contentView as? SwitcherSurfaceView)?.animateMaterializeOut(reduceMotion: reduceMotion)
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = reduceMotion ? 0.1 : 0.16
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -244,6 +296,8 @@ final class SwitcherOverlayController {
 
     private func clear() {
         preparation?.cancel()
+        previewFill?.cancel()
+        previewFill = nil
         presentationRevision += 1
         windows.removeAll()
         preparation = nil
