@@ -289,7 +289,10 @@ final class SwitcherOverlayController {
                 context.timingFunction = CAMediaTimingFunction(name: .easeIn)
                 panel.animator().alphaValue = 0
             }, completionHandler: {
-                panel.orderOut(nil)
+                // AppKit calls this on the main thread but types it as
+                // nonisolated, so state the guarantee rather than hopping
+                // through a Task and ordering the panel out a frame later.
+                MainActor.assumeIsolated { panel.orderOut(nil) }
             })
         }
     }

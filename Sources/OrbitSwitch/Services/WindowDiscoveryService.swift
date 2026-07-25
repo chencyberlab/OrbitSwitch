@@ -2,7 +2,10 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import OrbitSwitchCore
-import ScreenCaptureKit
+// ScreenCaptureKit predates strict concurrency: SCShareableContent and SCWindow
+// carry no Sendable annotations even though they are safe to hand between the
+// capture tasks here.
+@preconcurrency import ScreenCaptureKit
 
 struct SwitchableWindow: Identifiable {
     var metadata: WindowMetadata
@@ -12,16 +15,22 @@ struct SwitchableWindow: Identifiable {
     var id: CGWindowID { metadata.id }
 }
 
-protocol WindowDiscovering {
+protocol WindowDiscovering: Sendable {
     func discover(settings: AppSettings) async -> [SwitchableWindow]
     func capturePreviews(
         for windows: [SwitchableWindow],
         settings: AppSettings,
-        onPreview: @escaping @MainActor (CGWindowID, CGImage) -> Void
+        onPreview: @escaping @Sendable @MainActor (CGWindowID, CGImage) -> Void
     ) async
 }
 
-final class WindowDiscoveryService: WindowDiscovering {
+/// An actor, not a class: the overlay runs several capture passes against this
+/// service at once — the one that fills the stack when it opens, the on-demand
+/// one for a selection past that prefix, and the refresh after a zoom. They all
+/// execute off the main actor, so the preview cache and the prefetched content
+/// handle need an isolation domain of their own. The expensive work stays off
+/// the main thread, which is the whole reason this is not `@MainActor`.
+actor WindowDiscoveryService: WindowDiscovering {
     /// Thumbnails from the previous invocation, keyed by window ID. They let a
     /// new overlay open with real previews on its first frame; fresh captures
     /// then fade in over whatever has changed.
@@ -92,7 +101,7 @@ final class WindowDiscoveryService: WindowDiscovering {
     func capturePreviews(
         for windows: [SwitchableWindow],
         settings: AppSettings,
-        onPreview: @escaping @MainActor (CGWindowID, CGImage) -> Void
+        onPreview: @escaping @Sendable @MainActor (CGWindowID, CGImage) -> Void
     ) async {
         do {
             let content: SCShareableContent

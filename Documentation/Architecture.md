@@ -40,7 +40,7 @@ The controller uses explicit `idle`, `preparing`, `visible`, `activating`, and `
 ## Service boundaries
 
 - `GlobalShortcutManaging` isolates Carbon `RegisterEventHotKey`. Replacing the backend does not affect Settings or overlay code.
-- `WindowDiscovering` isolates window metadata and ScreenCaptureKit.
+- `WindowDiscovering` isolates window metadata and ScreenCaptureKit. Its implementation is an actor because the overlay runs up to three capture passes against it at once — the opening one, the on-demand one for a selection past the captured prefix, and the post-zoom refresh — and all of them execute off the main actor so window enumeration never blocks the first frame.
 - `WindowActivating` isolates Accessibility and application activation.
 - `SettingsPersistence` is the only component that encodes settings into `UserDefaults`.
 - `PermissionService` owns permission checks, explicit requests, and System Settings links.

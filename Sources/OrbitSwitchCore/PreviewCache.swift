@@ -5,7 +5,8 @@ import Foundation
 /// Eviction is insertion-order past the limit, which matches the count capture
 /// itself uses (16); entries for closed windows are never looked up again and
 /// simply age out. In-memory only: nothing is persisted. Not thread-safe —
-/// confine to a single actor (the app drives it from the main actor).
+/// confine to a single actor (the app keeps it inside its discovery actor,
+/// which runs several capture passes concurrently).
 public final class PreviewCache {
     public static let defaultLimit = 16
 
