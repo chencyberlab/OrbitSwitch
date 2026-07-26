@@ -79,7 +79,7 @@ struct AppearanceSettingsView: View {
                 suffix: " pt"
             )
             sharedControls
-            Text("Tab keeps cycling through every window. When more windows are open than fit, the strip scrolls and the tiles at each end fade to show the list continues. The strip stays clear of the menu bar and the Dock.")
+            Text("The side edges stack tiles in a column, the top and bottom lay them out in a row. Tab keeps cycling through every window. When more windows are open than fit, the strip scrolls and the tiles at each end fade to show the list continues. The strip stays clear of the menu bar and the Dock.")
                 .foregroundStyle(.secondary)
         }
     }

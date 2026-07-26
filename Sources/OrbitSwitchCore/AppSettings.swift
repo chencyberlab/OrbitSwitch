@@ -33,12 +33,27 @@ public enum OverlayStyle: String, Codable, CaseIterable, Identifiable, Sendable 
     }
 }
 
+/// Which screen edge the sidebar strip docks to. The side edges give a vertical
+/// column, the top and bottom a horizontal row; everything else about the style
+/// is the same.
 public enum SidebarEdge: String, Codable, CaseIterable, Identifiable, Sendable {
-    case left, right
+    case left, right, top, bottom
     public var id: String { rawValue }
 
     public var title: String {
-        switch self { case .left: "Left" case .right: "Right" }
+        switch self {
+        case .left: "Left"
+        case .right: "Right"
+        case .top: "Top"
+        case .bottom: "Bottom"
+        }
+    }
+
+    public var axis: SidebarAxis {
+        switch self {
+        case .left, .right: .vertical
+        case .top, .bottom: .horizontal
+        }
     }
 }
 

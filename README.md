@@ -79,9 +79,9 @@ The default forward shortcut is Option-Tab and the reverse shortcut is Option-Sh
 **Settings → Appearance** chooses how the switcher looks. Both styles use the same window list, shortcuts, mouse and scroll navigation, and window controls; only the arrangement differs, and the choice applies the next time the switcher opens.
 
 - **Orbit** is the perspective staircase: one large card front and center with the rest receding toward a vanishing point.
-- **Sidebar** is a vertical strip of compact tiles docked to one edge of the display, in the spirit of Stage Manager. Choose the **left** or **right** edge, how many windows are on screen at once (3–12), and the tile width. The strip appears on the display the switcher opened on, and stays clear of the menu bar and the Dock.
+- **Sidebar** is a strip of compact tiles docked to one edge of the display, in the spirit of Stage Manager. Choose the **left**, **right**, **top**, or **bottom** edge, how many windows are on screen at once (3–12), and the tile width. The side edges stack the tiles into a column, the top and bottom lay them out in a row; everything else about the style is identical. The strip appears on the display the switcher opened on, and stays clear of the menu bar and the Dock.
 
-Tab keeps cycling through every window in both styles. In Sidebar, when more windows are open than tiles fit, the strip scrolls to keep the selection in view and the tiles at each end fade to show that the list continues. On a short display OrbitSwitch narrows the tiles to honor the requested count, and shows fewer tiles only when they would otherwise become unreadably small.
+Tab keeps cycling through every window in both styles. In Sidebar, when more windows are open than tiles fit, the strip scrolls to keep the selection in view and the tiles at each end fade to show that the list continues. When the display is short for a column or narrow for a row, OrbitSwitch narrows the tiles to honor the requested count, and shows fewer tiles only when they would otherwise become unreadably small.
 
 ## Privacy and security
 

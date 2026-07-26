@@ -17,6 +17,30 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(settings.sidebarVisibleCount, 7)
     }
 
+    /// The view picks its layout axis from the edge alone, so this mapping is
+    /// what makes a top or bottom strip a row rather than a column.
+    func testEachScreenEdgeMapsToTheAxisItsStripRunsAlong() {
+        XCTAssertEqual(SidebarEdge.left.axis, .vertical)
+        XCTAssertEqual(SidebarEdge.right.axis, .vertical)
+        XCTAssertEqual(SidebarEdge.top.axis, .horizontal)
+        XCTAssertEqual(SidebarEdge.bottom.axis, .horizontal)
+        XCTAssertEqual(SidebarEdge.allCases.count, 4)
+    }
+
+    func testEveryScreenEdgeSurvivesAPersistenceRoundTrip() throws {
+        for edge in SidebarEdge.allCases {
+            let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let persistence = SettingsPersistence(defaults: defaults)
+            var settings = AppSettings()
+            settings.overlayStyle = .sidebar
+            settings.sidebarEdge = edge
+            persistence.save(settings)
+            XCTAssertEqual(persistence.load().sidebarEdge, edge)
+        }
+    }
+
     func testPersistenceClampsOutOfRangeSidebarValues() throws {
         let suite = "OrbitSwitchTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

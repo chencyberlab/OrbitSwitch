@@ -10,6 +10,10 @@ import OrbitSwitchCore
 /// frames overlap at a common base rect and pointer events must be mapped
 /// through each layer's transform rather than through AppKit's view hierarchy.
 class SwitcherSurfaceView: NSView {
+    /// Height of the position capsule. Subclasses place the capsule themselves
+    /// and need to know how tall it will be, so this is the single source.
+    static let indicatorHeight: CGFloat = 28
+
     var onMove: ((Int) -> Void)?
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -50,7 +54,7 @@ class SwitcherSurfaceView: NSView {
         positionIndicator.material = .hudWindow
         positionIndicator.blendingMode = .withinWindow
         positionIndicator.wantsLayer = true
-        positionIndicator.layer?.cornerRadius = 14
+        positionIndicator.layer?.cornerRadius = Self.indicatorHeight / 2
         positionIndicator.layer?.cornerCurve = .continuous
         positionIndicator.layer?.shadowColor = NSColor.black.cgColor
         positionIndicator.layer?.shadowOpacity = 0.28
@@ -74,7 +78,7 @@ class SwitcherSurfaceView: NSView {
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            positionIndicator.heightAnchor.constraint(equalToConstant: 28),
+            positionIndicator.heightAnchor.constraint(equalToConstant: Self.indicatorHeight),
             positionLabel.leadingAnchor.constraint(equalTo: positionIndicator.leadingAnchor, constant: 14),
             positionLabel.trailingAnchor.constraint(equalTo: positionIndicator.trailingAnchor, constant: -14),
             positionLabel.centerYAnchor.constraint(equalTo: positionIndicator.centerYAnchor)

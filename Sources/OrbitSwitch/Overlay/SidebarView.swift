@@ -1,25 +1,26 @@
 import AppKit
 import OrbitSwitchCore
 
-/// The sidebar style: a vertical strip of compact tiles docked to the left or
-/// right edge of the display the overlay opened on, in the spirit of Stage
-/// Manager. Only `sidebarVisibleCount` tiles are on screen at once; moving past
-/// either end slides the strip, and the selection itself keeps wrapping, so Tab
-/// loops through every window regardless of how many tiles fit.
+/// The sidebar style: a strip of compact tiles docked to one edge of the
+/// display the overlay opened on, in the spirit of Stage Manager. The left and
+/// right edges give a vertical column, the top and bottom a horizontal row.
+/// Only `sidebarVisibleCount` tiles are on screen at once; moving past either
+/// end slides the strip, and the selection itself keeps wrapping, so Tab loops
+/// through every window regardless of how many tiles fit.
 final class SidebarView: SwitcherSurfaceView {
-    /// Distance from the screen edge (or the Dock, when it is on this edge).
+    /// Distance from the screen's own edges, or from the Dock and menu bar
+    /// where those intrude.
     private static let horizontalMargin: CGFloat = 22
     private static let verticalMargin: CGFloat = 20
-    /// Room kept below the strip for the position capsule.
-    private static let indicatorHeight: CGFloat = 28
+    /// Room kept beside the strip for the position capsule.
     private static let indicatorGap: CGFloat = 14
-    private static let indicatorReserve = indicatorHeight + indicatorGap + 2
+    private static let indicatorReserve = SwitcherSurfaceView.indicatorHeight + indicatorGap + 2
     /// How far the selected tile leans out of the strip, toward the screen.
     private static let selectedNudge: CGFloat = 10
 
     private(set) var placements: [SidebarPlacement] = []
     private(set) var metrics = SidebarMetrics(tileWidth: 0, tileHeight: 0, spacing: 12, capacity: 1)
-    private var columnCenter = CGPoint.zero
+    private var stripCenter = CGPoint.zero
     private var indicatorCenterX: NSLayoutConstraint?
     private var indicatorBottom: NSLayoutConstraint?
     private var lastViewportStart: Int?
@@ -49,9 +50,17 @@ final class SidebarView: SwitcherSurfaceView {
     /// the whole desktop.
     override func updateBackgroundDimming(_ percentage: Double) {
         let amount = min(0.85, max(0, percentage / 100))
+        // A gradient layer's unit space runs top-down: (0, 0) is its top-left
+        // corner, the opposite of the view coordinates around it.
+        let anchor: CGPoint = switch edge {
+        case .left: CGPoint(x: 0, y: 0.5)
+        case .right: CGPoint(x: 1, y: 0.5)
+        case .top: CGPoint(x: 0.5, y: 0)
+        case .bottom: CGPoint(x: 0.5, y: 1)
+        }
         backgroundGradient.locations = [0, 0.45, 1]
-        backgroundGradient.startPoint = CGPoint(x: edge == .left ? 0 : 1, y: 0.5)
-        backgroundGradient.endPoint = CGPoint(x: edge == .left ? 1 : 0, y: 0.5)
+        backgroundGradient.startPoint = anchor
+        backgroundGradient.endPoint = CGPoint(x: 1 - anchor.x, y: 1 - anchor.y)
         backgroundGradient.colors = [
             NSColor(calibratedRed: 0.02, green: 0.05, blue: 0.08, alpha: min(0.9, amount * 1.05)).cgColor,
             NSColor(calibratedRed: 0.05, green: 0.07, blue: 0.10, alpha: amount * 0.55).cgColor,
@@ -68,16 +77,24 @@ final class SidebarView: SwitcherSurfaceView {
     override func configureBaseCardGeometry() {
         guard bounds.width > 0, bounds.height > 0 else { return }
         let insets = safeAreaInsetsForScreen()
-        let reserve = windows.count > 1 ? Self.indicatorReserve : 0
-        let contentBottom = insets.bottom + Self.verticalMargin + reserve
-        let contentTop = bounds.height - insets.top - Self.verticalMargin
-        let availableHeight = max(120, contentTop - contentBottom)
-        let availableWidth = max(120, bounds.width - insets.left - insets.right - Self.horizontalMargin * 2)
+        let left = insets.left + Self.horizontalMargin
+        let right = bounds.width - insets.right - Self.horizontalMargin
+        let bottom = insets.bottom + Self.verticalMargin
+        let top = bounds.height - insets.top - Self.verticalMargin
+        // The capsule sits past the end of a column but under (or over) a row,
+        // so on either axis it comes out of the height before tiles are sized.
+        // A row's selected tile also leans across the strip toward the capsule,
+        // which a column's leans clear of, so that lean is reserved too.
+        let isRow = edge.axis == .horizontal
+        let reserve = windows.count > 1 ? Self.indicatorReserve + (isRow ? Self.selectedNudge : 0) : 0
+        let availableWidth = max(120, right - left)
+        let availableHeight = max(120, top - bottom - reserve)
 
         metrics = SidebarLayout.metrics(
             count: cards.count,
             preferredCapacity: settings.sidebarVisibleCount,
             preferredTileWidth: settings.sidebarTileWidth,
+            axis: edge.axis,
             availableWidth: Double(availableWidth),
             availableHeight: Double(availableHeight),
             footerHeight: Double(resolvedCardMetrics.footerHeight)
@@ -85,27 +102,38 @@ final class SidebarView: SwitcherSurfaceView {
 
         let tileWidth = CGFloat(metrics.tileWidth)
         let tileHeight = CGFloat(metrics.tileHeight)
-        let centerX = edge == .left
-            ? insets.left + Self.horizontalMargin + tileWidth / 2
-            : bounds.width - insets.right - Self.horizontalMargin - tileWidth / 2
-        columnCenter = CGPoint(x: centerX, y: (contentBottom + contentTop) / 2)
+        // A column is centered in what is left of the height and pushed against
+        // its side edge; a row is centered across the width and pushed against
+        // the top or bottom.
+        stripCenter = switch edge {
+        case .left: CGPoint(x: left + tileWidth / 2, y: (bottom + reserve + top) / 2)
+        case .right: CGPoint(x: right - tileWidth / 2, y: (bottom + reserve + top) / 2)
+        case .top: CGPoint(x: (left + right) / 2, y: top - tileHeight / 2)
+        case .bottom: CGPoint(x: (left + right) / 2, y: bottom + tileHeight / 2)
+        }
 
         // The capsule follows the strip rather than the screen edge, so a short
-        // list keeps it tucked under the last tile instead of stranding it.
-        let columnBottom = columnCenter.y - CGFloat(metrics.columnHeight) / 2
-        indicatorCenterX?.constant = centerX
-        indicatorBottom?.constant = -max(
-            insets.bottom + Self.verticalMargin,
-            columnBottom - Self.indicatorGap - Self.indicatorHeight
-        )
+        // list keeps it tucked against the tiles instead of stranding it.
+        let indicatorHeight = SwitcherSurfaceView.indicatorHeight
+        let rowClearance = tileHeight / 2 + Self.selectedNudge + Self.indicatorGap
+        let capsuleBottom: CGFloat = switch edge {
+        case .left, .right:
+            max(bottom, stripCenter.y - CGFloat(metrics.stripExtent) / 2 - Self.indicatorGap - indicatorHeight)
+        case .top:
+            max(bottom, stripCenter.y - rowClearance - indicatorHeight)
+        case .bottom:
+            min(top - indicatorHeight, stripCenter.y + rowClearance)
+        }
+        indicatorCenterX?.constant = stripCenter.x
+        indicatorBottom?.constant = -capsuleBottom
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for card in cards {
             card.layer?.transform = CATransform3DIdentity
             card.frame = NSRect(
-                x: columnCenter.x - tileWidth / 2,
-                y: columnCenter.y - tileHeight / 2,
+                x: stripCenter.x - tileWidth / 2,
+                y: stripCenter.y - tileHeight / 2,
                 width: tileWidth,
                 height: tileHeight
             )
@@ -128,14 +156,22 @@ final class SidebarView: SwitcherSurfaceView {
         lastViewportStart = viewport.firstIndex
         let animated = animated && !jumped
 
-        let nudge = edge == .left ? Self.selectedNudge : -Self.selectedNudge
+        let lean = selectionLean
+        let isVertical = metrics.axis == .vertical
         for (index, card) in cards.enumerated() {
             guard let layer = card.layer else { continue }
             let placement = placements[index]
             let isSelected = index == selection
             let scale = reduceMotion ? (isSelected ? 1 : 0.98) : placement.scale
+            let along = CGFloat(placement.offset)
+            let across = isSelected ? lean : 0
             var transform = CATransform3DIdentity
-            transform = CATransform3DTranslate(transform, isSelected ? nudge : 0, placement.y, 0)
+            transform = CATransform3DTranslate(
+                transform,
+                isVertical ? across : along,
+                isVertical ? along : across,
+                0
+            )
             transform = CATransform3DScale(transform, scale, scale, 1)
             apply(
                 transform: transform,
@@ -146,6 +182,15 @@ final class SidebarView: SwitcherSurfaceView {
             )
             layer.zPosition = isSelected ? CGFloat(cards.count + 1) : CGFloat(cards.count - abs(placement.slot))
             card.setSelected(isSelected)
+        }
+    }
+
+    /// The selected tile leans across the strip, always toward the middle of
+    /// the screen and so away from whichever edge the strip is docked to.
+    private var selectionLean: CGFloat {
+        switch edge {
+        case .left, .bottom: Self.selectedNudge
+        case .right, .top: -Self.selectedNudge
         }
     }
 

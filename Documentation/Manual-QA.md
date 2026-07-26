@@ -64,13 +64,15 @@ Use a signed build whose identity matches the intended test build. Record the ma
 
 - [ ] Switching the style in Settings → Appearance takes effect the next time the switcher opens, with no relaunch.
 - [ ] The strip appears on the same display the Orbit stack would use for Active, Pointer, and All Displays.
-- [ ] Left and right edges both position the strip and lean the selected tile toward the screen.
+- [ ] All four edges position the strip against that edge and lean the selected tile toward the screen.
+- [ ] Left and right stack the tiles in a column; top and bottom lay them out in a row.
+- [ ] The background dimming is heaviest at whichever edge the strip is docked to.
 - [ ] The strip clears the menu bar, and clears the Dock with the Dock on the left, right, and bottom.
 - [ ] Tab keeps cycling past the last tile and wraps to the first; Option-Shift-Tab wraps backward.
 - [ ] With more windows than tiles, the strip scrolls to keep the selection visible and the end tiles fade.
 - [ ] With fewer windows than the configured count, all tiles show and none are faded.
-- [ ] Windows On Screen and Tile Width apply as labeled; a short display shows fewer, not clipped, tiles.
-- [ ] The position capsule stays under the strip for both few and many windows.
+- [ ] Windows On Screen and Tile Width apply as labeled; a display too small for the requested count shows fewer, not clipped, tiles — check a column on a short display and a row on a narrow one.
+- [ ] The position capsule stays with the strip for both few and many windows: past the end of a column, below a top row, above a bottom row.
 - [ ] Clicking a tile selects it, clicking the selected tile confirms, and clicking the desktop dismisses.
 - [ ] Window controls appear on hover over the selected tile and act on the right window.
 - [ ] Scroll and arrow keys move the selection in both directions.
