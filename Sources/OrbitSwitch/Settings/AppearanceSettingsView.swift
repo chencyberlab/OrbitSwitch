@@ -26,11 +26,11 @@ struct AppearanceSettingsView: View {
                     Text("Show window controls")
                     Text("Close, minimize, and zoom buttons on the front card.")
                 }
-                Picker("Theme", selection: settings.binding(\.theme)) {
+                Picker("App appearance", selection: settings.binding(\.theme)) {
                     ForEach(AppTheme.allCases) { theme in Text(theme.rawValue.capitalized).tag(theme) }
                 }
             }
-            Text("OrbitSwitch automatically follows the system Reduce Motion and Increase Contrast settings.")
+            Text("OrbitSwitch automatically follows the system Reduce Motion, Reduce Transparency, and Increase Contrast settings. Window cards keep their dark photographic treatment in every app appearance.")
                 .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)

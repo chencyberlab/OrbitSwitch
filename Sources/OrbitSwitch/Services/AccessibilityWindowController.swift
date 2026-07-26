@@ -126,16 +126,17 @@ final class AccessibilityWindowController: WindowActivating {
             return match
         }
 
-        let target: AXUIElement? = if window.metadata.title.isEmpty {
-            windows.first
-        } else {
-            windows.first { element in
-                var titleValue: CFTypeRef?
-                AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleValue)
-                return (titleValue as? String ?? "") == window.metadata.title
-            }
+        // A title fallback is safe only when it identifies exactly one AX
+        // window. Raising the first untitled or duplicate-titled window would
+        // be worse than the existing application-level activation fallback.
+        let titleMatches = windows.filter { element in
+            var titleValue: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &titleValue)
+            return (titleValue as? String ?? "") == window.metadata.title
         }
-        guard let target else { throw WindowActivationError.windowUnavailable }
+        guard titleMatches.count == 1, let target = titleMatches.first else {
+            throw WindowActivationError.windowUnavailable
+        }
         return target
     }
 

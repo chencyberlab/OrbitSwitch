@@ -86,7 +86,7 @@ Tab keeps cycling through every window in both styles. In Sidebar, when more win
 ## Privacy and security
 
 - Window titles and thumbnails are processed locally and never transmitted.
-- Thumbnails are held in memory only, limited to the first visible stack entries, and discarded when the overlay closes.
+- Thumbnails are held in memory only. Session card references are discarded when the overlay closes; a bounded sixteen-image cache accelerates the next invocation and is purged immediately if Screen Recording is revoked, the session locks, or displays sleep.
 - The app has no analytics, networking, or update telemetry.
 - No captured image is written to disk.
 - Only Apple frameworks are used, all public: AppKit, Core Graphics, ScreenCaptureKit, Accessibility, Carbon HIToolbox, SwiftUI, and ServiceManagement. One undocumented Accessibility symbol, `_AXUIElementGetWindow`, is used to match a window element to its window ID because no public equivalent exists; it is confined to `AccessibilityWindowController` and falls back to title matching. See [Architecture.md](Documentation/Architecture.md).

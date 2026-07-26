@@ -29,6 +29,20 @@ enum GlobalShortcutError: LocalizedError {
 
 @MainActor
 final class GlobalShortcutManager: GlobalShortcutManaging {
+    /// Carbon resources must also be releasable from Swift 6's nonisolated
+    /// deinitialization path. Keeping raw references in a small unchecked
+    /// Sendable owner avoids reaching into MainActor-isolated manager state
+    /// during teardown; all mutation still happens on the main actor.
+    private final class ResourceOwner: @unchecked Sendable {
+        var hotKeys: [UInt32: EventHotKeyRef] = [:]
+        var eventHandler: EventHandlerRef?
+
+        deinit {
+            hotKeys.values.forEach { UnregisterEventHotKey($0) }
+            if let eventHandler { RemoveEventHandler(eventHandler) }
+        }
+    }
+
     private struct Registration {
         let shortcut: ShortcutDefinition
         let reference: EventHotKeyRef
@@ -39,13 +53,14 @@ final class GlobalShortcutManager: GlobalShortcutManaging {
     private var registrations: [UInt32: Registration] = [:]
     private var identifiers: [ShortcutDefinition: UInt32] = [:]
     private var nextIdentifier: UInt32 = 1
-    private var eventHandler: EventHandlerRef?
+    private let resources = ResourceOwner()
 
     init() throws {
         var specs = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
         ]
+        var installedHandler: EventHandlerRef?
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, event, userData in
@@ -68,14 +83,13 @@ final class GlobalShortcutManager: GlobalShortcutManaging {
             specs.count,
             &specs,
             Unmanaged.passUnretained(self).toOpaque(),
-            &eventHandler
+            &installedHandler
         )
-        guard status == noErr else { throw GlobalShortcutError.handlerInstallation(status) }
-    }
-
-    deinit {
-        registrations.values.forEach { UnregisterEventHotKey($0.reference) }
-        if let eventHandler { RemoveEventHandler(eventHandler) }
+        guard status == noErr else {
+            if let installedHandler { RemoveEventHandler(installedHandler) }
+            throw GlobalShortcutError.handlerInstallation(status)
+        }
+        resources.eventHandler = installedHandler
     }
 
     func register(_ shortcut: ShortcutDefinition, pressed: @escaping () -> Void, released: @escaping () -> Void) throws {
@@ -96,11 +110,13 @@ final class GlobalShortcutManager: GlobalShortcutManaging {
         guard status == noErr, let reference else { throw GlobalShortcutError.registrationFailed(status) }
         registrations[identifier] = Registration(shortcut: shortcut, reference: reference, pressed: pressed, released: released)
         identifiers[shortcut] = identifier
+        resources.hotKeys[identifier] = reference
     }
 
     func unregister(_ shortcut: ShortcutDefinition) {
         guard let identifier = identifiers.removeValue(forKey: shortcut),
               let registration = registrations.removeValue(forKey: identifier) else { return }
+        resources.hotKeys.removeValue(forKey: identifier)
         UnregisterEventHotKey(registration.reference)
     }
 
@@ -108,6 +124,7 @@ final class GlobalShortcutManager: GlobalShortcutManaging {
         registrations.values.forEach { UnregisterEventHotKey($0.reference) }
         registrations.removeAll()
         identifiers.removeAll()
+        resources.hotKeys.removeAll()
     }
 
     private func handle(identifier: UInt32, kind: UInt32) {

@@ -12,6 +12,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] The menu-bar and Dock controls never permit both app entry points to be hidden.
 - [ ] Disabling Remember Display Preference restores Pointer Display after relaunch.
 - [ ] Launch at Login registers in a Developer ID signed build and reports the correct macOS status.
+- [ ] A Launch at Login registration failure rolls the toggle back and shows the failure beside the real system status.
 - [ ] Quit removes the overlay and all hotkeys.
 
 ## Permissions
@@ -20,6 +21,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Accessibility request and System Settings link open the correct pane.
 - [ ] Screen Recording request and System Settings link open the correct pane.
 - [ ] Permission status updates after returning from System Settings or restarting when macOS requires it.
+- [ ] After previews have been captured, revoking Screen Recording replaces visible and subsequently reopened previews with title/icon fallbacks.
 - [ ] Replacing an installed build with a newer build signed by the same certificate retains both permissions.
 - [ ] An ad-hoc build displays the development-signature warning in Settings → Permissions.
 - [ ] Protected video produces a fallback card rather than a crash or error image.
@@ -35,6 +37,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Duplicating another OrbitSwitch binding is rejected.
 - [ ] Command-Tab, Command-Space, Command-Backtick, and Control-arrow bindings show a warning.
 - [ ] A shortcut owned by another utility reports registration failure and leaves the previous shortcut working.
+- [ ] If another utility claims a shortcut while OrbitSwitch is paused, Resume fails visibly and OrbitSwitch remains paused.
 - [ ] Test at least one non-US keyboard layout and a shortcut involving a punctuation key.
 - [ ] Fast repeated presses during overlay preparation select the expected card.
 
@@ -49,7 +52,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] The bottom position capsule follows selection and wrapping, and stays hidden for zero or one window.
 - [ ] Empty, one-window, and thirty-plus-window sets remain usable.
 - [ ] With more than sixteen windows open, selecting one past the sixteenth still fills in a preview shortly after it is selected, in both styles.
-- [ ] Closing a selected window while the overlay is open fails safely.
+- [ ] Closing a selected window removes its card only after the window disappears; an unsaved-document confirmation keeps the card present.
 - [ ] A minimized window restores when macOS exposes it through Accessibility.
 - [ ] With Include Minimized enabled, minimized windows appear; with it disabled, they do not.
 - [ ] With Accessibility enabled and Current Space Only selected, ordinary windows on another Space remain excluded.
@@ -93,10 +96,12 @@ Use a signed build whose identity matches the intended test build. Record the ma
 
 - [ ] VoiceOver reads each card as app name followed by window title.
 - [ ] VoiceOver announces each selection change as the switcher is cycled, once per change with All Displays enabled.
+- [ ] VoiceOver can press a card and invoke Close, Minimize, and Zoom as custom actions on the selected card.
+- [ ] VoiceOver does not focus cards hidden beyond the Orbit depth limit or outside the Sidebar viewport.
 - [ ] The empty-state message is legible in Light, Dark, and System themes.
 - [ ] Reduce Motion removes the perspective movement and uses a short transition.
 - [ ] Increase Contrast keeps selection borders and labels legible.
-- [ ] Light, Dark, and System themes update Settings and overlay cards.
+- [ ] Light, Dark, and System app appearances update Settings and system-material overlay elements; window cards retain their dark photographic treatment.
 - [ ] Settings controls have meaningful labels and can be reached by keyboard.
 
 ## Privacy and reliability

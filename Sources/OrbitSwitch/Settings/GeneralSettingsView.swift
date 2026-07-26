@@ -1,4 +1,3 @@
-import ServiceManagement
 import SwiftUI
 
 struct GeneralSettingsView: View {
@@ -15,7 +14,12 @@ struct GeneralSettingsView: View {
             Text("Keep at least one app entry visible so Settings remains accessible.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            LabeledContent("Start at login status", value: launchStatus)
+            LabeledContent("Start at login status", value: appState.launchAtLoginStatus)
+            if let error = appState.launchAtLoginError {
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
             LabeledContent("Updates", value: "Manual in version 1.0")
             Button("Show Onboarding") {
                 settings.value.onboardingComplete = false
@@ -26,12 +30,4 @@ struct GeneralSettingsView: View {
         .padding()
     }
 
-    private var launchStatus: String {
-        switch SMAppService.mainApp.status {
-        case .enabled: "Enabled"
-        case .requiresApproval: "Requires approval"
-        case .notFound: "Unavailable in this build"
-        default: "Disabled"
-        }
-    }
 }

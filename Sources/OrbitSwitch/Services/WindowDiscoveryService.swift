@@ -22,6 +22,7 @@ protocol WindowDiscovering: Sendable {
         settings: AppSettings,
         onPreview: @escaping @Sendable @MainActor (CGWindowID, CGImage) -> Void
     ) async
+    func purgePreviews() async
 }
 
 /// An actor, not a class: the overlay runs several capture passes against this
@@ -41,8 +42,10 @@ actor WindowDiscoveryService: WindowDiscovering {
     private var prefetchedContent: Task<SCShareableContent, Error>?
 
     func discover(settings: AppSettings) async -> [SwitchableWindow] {
+        let canUsePreviews = PermissionService.status.screenRecording
         prefetchedContent?.cancel()
-        prefetchedContent = PermissionService.status.screenRecording
+        if !canUsePreviews { previewCache.removeAll() }
+        prefetchedContent = canUsePreviews
             ? Task { try await Self.shareableContent(settings: settings) }
             : nil
         let options: CGWindowListOption = Self.usesOnScreenWindowsOnly(settings)
@@ -89,9 +92,15 @@ actor WindowDiscoveryService: WindowDiscovering {
             SwitchableWindow(
                 metadata: item,
                 appIcon: icon(for: item.ownerPID),
-                preview: previewCache.image(for: item.id)
+                preview: canUsePreviews ? previewCache.image(for: item.id) : nil
             )
         }
+    }
+
+    func purgePreviews() async {
+        prefetchedContent?.cancel()
+        prefetchedContent = nil
+        previewCache.removeAll()
     }
 
     /// Captures with bounded concurrency: strictly sequential captures leave
@@ -103,6 +112,12 @@ actor WindowDiscoveryService: WindowDiscovering {
         settings: AppSettings,
         onPreview: @escaping @Sendable @MainActor (CGWindowID, CGImage) -> Void
     ) async {
+        guard PermissionService.status.screenRecording else {
+            prefetchedContent?.cancel()
+            prefetchedContent = nil
+            previewCache.removeAll()
+            return
+        }
         do {
             let content: SCShareableContent
             if let prefetchedContent {
@@ -119,7 +134,15 @@ actor WindowDiscoveryService: WindowDiscovering {
             let maximumWidth = settings.thumbnailQuality.maximumWidth
             await withTaskGroup(of: (CGWindowID, CGImage)?.self) { group in
                 func deliver(_ result: (CGWindowID, CGImage)?) async {
-                    guard !Task.isCancelled, let (id, image) = result else { return }
+                    guard !Task.isCancelled, PermissionService.status.screenRecording,
+                          let (id, image) = result else {
+                        // The actor is reentrant while capture awaits
+                        // ScreenCaptureKit, so a revocation purge can run and
+                        // finish before this result returns. Never let that
+                        // stale result repopulate the cache afterward.
+                        if !PermissionService.status.screenRecording { previewCache.removeAll() }
+                        return
+                    }
                     previewCache.insert(image, for: id)
                     await onPreview(id, image)
                 }

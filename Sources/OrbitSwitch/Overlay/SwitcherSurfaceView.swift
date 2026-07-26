@@ -145,6 +145,12 @@ class SwitcherSurfaceView: NSView {
         let metrics = resolvedCardMetrics
         cards = windows.map { window in
             let card = WindowCardView(window: window, settings: settings, metrics: metrics)
+            card.onAccessibilityActivate = { [weak self] in
+                self?.activateCardForAccessibility(id: window.id)
+            }
+            card.onAccessibilityControlAction = { [weak self] action in
+                self?.onControlAction?(action, window.id)
+            }
             addSubview(card, positioned: .above, relativeTo: background)
             return card
         }
@@ -163,10 +169,24 @@ class SwitcherSurfaceView: NSView {
         if let index = windows.firstIndex(where: { $0.id == id }) { windows[index].preview = image }
     }
 
+    func clearPreviews() {
+        for index in windows.indices { windows[index].preview = nil }
+        cards.forEach { $0.updatePreview(nil) }
+    }
+
     func updateSelection(_ selection: Int) {
         self.selection = Flip3DLayout.wrappedIndex(selection, count: windows.count)
         updatePositionIndicator()
         layoutCards(animated: true)
+    }
+
+    private func activateCardForAccessibility(id: CGWindowID) {
+        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        if index == selection {
+            onConfirm?()
+        } else {
+            onMove?(index - selection)
+        }
     }
 
     func prepareForPresentation() {

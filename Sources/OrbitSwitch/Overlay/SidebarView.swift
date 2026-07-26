@@ -182,6 +182,7 @@ final class SidebarView: SwitcherSurfaceView {
             )
             layer.zPosition = isSelected ? CGFloat(cards.count + 1) : CGFloat(cards.count - abs(placement.slot))
             card.setSelected(isSelected)
+            card.setAccessibleVisibility(placement.isVisible)
         }
     }
 

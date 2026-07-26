@@ -14,6 +14,8 @@ final class AppState: ObservableObject {
     let settings: SettingsStore
     @Published private(set) var shortcutStatus = "Shortcuts active"
     @Published private(set) var permissionStatus = PermissionService.status
+    @Published private(set) var launchAtLoginStatus = AppState.currentLaunchAtLoginStatus()
+    @Published private(set) var launchAtLoginError: String?
 
     private let overlay = SwitcherOverlayController()
     private var shortcutManager: GlobalShortcutManager?
@@ -23,6 +25,7 @@ final class AppState: ObservableObject {
     private var heldConfirmationModifiers: ShortcutModifiers = []
     private var modifierReleaseTimer: Timer?
     private var workspaceObservers: [NSObjectProtocol] = []
+    private var isReconcilingSettings = false
 
     init() {
         let store = SettingsStore()
@@ -47,8 +50,10 @@ final class AppState: ObservableObject {
             Log.shortcuts.error("Shortcut setup failed: \(error.localizedDescription, privacy: .public)")
         }
         applyAppearance(settings.value)
+        reconcileLaunchAtLoginAtStart()
         installWorkspaceObservers()
         refreshPermissions()
+        refreshLaunchAtLoginStatus()
         if !settings.value.onboardingComplete { showOnboarding() }
     }
 
@@ -63,13 +68,47 @@ final class AppState: ObservableObject {
     }
 
     func toggleShortcutPause() {
-        settings.value.shortcutsPaused.toggle()
+        let previous = settings.value
+        var candidate = previous
+        candidate.shortcutsPaused.toggle()
+        do {
+            try registerShortcuts(from: candidate)
+        } catch {
+            let message = restoreShortcuts(after: error, previous: previous)
+            shortcutStatus = message
+            return
+        }
+        // Registration is the side effect that can fail, so persist only after
+        // it succeeds. Pre-advancing appliedSettings prevents onChange from
+        // registering the same complete set a second time.
+        appliedSettings = candidate
+        settings.value = candidate
     }
 
     func refreshPermissions() {
         let status = PermissionService.status
         guard status != permissionStatus else { return }
+        let screenRecordingWasRevoked = permissionStatus.screenRecording && !status.screenRecording
         permissionStatus = status
+        if screenRecordingWasRevoked { overlay.purgeCachedPreviews() }
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        launchAtLoginStatus = Self.currentLaunchAtLoginStatus()
+        let actualValue = Self.isLaunchAtLoginRegistered()
+        if settings.value.launchAtLogin == actualValue {
+            launchAtLoginError = nil
+            return
+        }
+        // Login Items can also be changed in System Settings. When OrbitSwitch
+        // becomes active again, make the preference reflect that external
+        // decision instead of leaving a stale toggle beside the live status.
+        var corrected = settings.value
+        corrected.launchAtLogin = actualValue
+        appliedSettings = corrected
+        isReconcilingSettings = true
+        settings.value = corrected
+        isReconcilingSettings = false
     }
 
     func showOnboarding() {
@@ -119,8 +158,7 @@ final class AppState: ObservableObject {
             shortcutStatus = candidate.shortcutsPaused ? "Shortcuts paused" : "Shortcuts active"
             return .accepted
         } catch {
-            try? registerShortcuts(from: previous)
-            return .rejected(error.localizedDescription)
+            return .rejected(restoreShortcuts(after: error, previous: previous))
         }
     }
 
@@ -132,8 +170,7 @@ final class AppState: ObservableObject {
             settings.value = candidate
             return .accepted
         } catch {
-            try? registerShortcuts(from: settings.value)
-            return .rejected(error.localizedDescription)
+            return .rejected(restoreShortcuts(after: error, previous: settings.value))
         }
     }
 
@@ -148,17 +185,50 @@ final class AppState: ObservableObject {
     }
 
     private func settingsDidChange(_ value: AppSettings) {
+        guard !isReconcilingSettings else {
+            appliedSettings = value
+            return
+        }
+        var accepted = value
         if value.shortcutsPaused != appliedSettings.shortcutsPaused {
             do { try registerShortcuts(from: value) }
-            catch { shortcutStatus = error.localizedDescription }
+            catch {
+                let previous = appliedSettings
+                accepted.shortcutsPaused = previous.shortcutsPaused
+                shortcutStatus = restoreShortcuts(after: error, previous: previous)
+            }
         }
         if value.showDockIcon != appliedSettings.showDockIcon || value.theme != appliedSettings.theme {
             applyAppearance(value)
         }
         if value.launchAtLogin != appliedSettings.launchAtLogin {
-            applyLaunchAtLogin(value.launchAtLogin)
+            do {
+                try applyLaunchAtLogin(value.launchAtLogin)
+                launchAtLoginError = nil
+            } catch {
+                accepted.launchAtLogin = appliedSettings.launchAtLogin
+                launchAtLoginError = error.localizedDescription
+                Log.app.error("Launch at login change failed: \(error.localizedDescription, privacy: .public)")
+            }
+            refreshLaunchAtLoginStatus()
         }
-        appliedSettings = value
+        appliedSettings = accepted
+        guard accepted != value else { return }
+        isReconcilingSettings = true
+        settings.value = accepted
+        isReconcilingSettings = false
+    }
+
+    private func restoreShortcuts(after candidateError: Error, previous: AppSettings) -> String {
+        let candidateMessage = candidateError.localizedDescription
+        do {
+            try registerShortcuts(from: previous)
+            return candidateMessage
+        } catch {
+            let message = "\(candidateMessage) The previous shortcuts could not be restored: \(error.localizedDescription)"
+            Log.shortcuts.error("\(message, privacy: .public)")
+            return message
+        }
     }
 
     private func registerShortcuts(from settings: AppSettings) throws {
@@ -221,22 +291,25 @@ final class AppState: ObservableObject {
 
     private func installWorkspaceObservers() {
         guard workspaceObservers.isEmpty else { return }
-        let dismissOnNotification: (Notification.Name, NotificationCenter) -> NSObjectProtocol = { name, center in
+        let dismissOnNotification: (Notification.Name, NotificationCenter, Bool) -> NSObjectProtocol = { name, center, purgePreviews in
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.dismissSwitcher() }
+                Task { @MainActor [weak self] in
+                    self?.dismissSwitcher()
+                    if purgePreviews { self?.overlay.purgeCachedPreviews() }
+                }
             }
         }
         let workspaceCenter = NSWorkspace.shared.notificationCenter
         workspaceObservers = [
             NSWorkspace.sessionDidResignActiveNotification,
             NSWorkspace.screensDidSleepNotification
-        ].map { dismissOnNotification($0, workspaceCenter) }
+        ].map { dismissOnNotification($0, workspaceCenter, true) }
         // Panels are sized to the screens present when the switcher opened, so
         // unplugging or rearranging a display mid-session would leave one on a
         // screen that no longer exists. Screen parameters post to the default
         // center, not the workspace one.
         workspaceObservers.append(
-            dismissOnNotification(NSApplication.didChangeScreenParametersNotification, .default)
+            dismissOnNotification(NSApplication.didChangeScreenParametersNotification, .default, false)
         )
         // Granting a permission happens in System Settings, so the state that
         // Settings and the menu show is only stale until the user comes back.
@@ -246,7 +319,10 @@ final class AppState: ObservableObject {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.refreshPermissions() }
+                Task { @MainActor [weak self] in
+                    self?.refreshPermissions()
+                    self?.refreshLaunchAtLoginStatus()
+                }
             }
         )
     }
@@ -260,12 +336,56 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func applyLaunchAtLogin(_ enabled: Bool) {
+    private func applyLaunchAtLogin(_ enabled: Bool) throws {
+        let service = SMAppService.mainApp
+        if enabled {
+            switch service.status {
+            case .enabled, .requiresApproval: return
+            default: try service.register()
+            }
+        } else {
+            switch service.status {
+            case .notRegistered, .notFound: return
+            default: try service.unregister()
+            }
+        }
+    }
+
+    /// Preferences can outlive an ad-hoc build or be changed independently in
+    /// System Settings. On launch, honor the persisted request if possible and
+    /// otherwise persist the service's real state so the toggle never starts
+    /// out contradicting the status row beside it.
+    private func reconcileLaunchAtLoginAtStart() {
         do {
-            if enabled { try SMAppService.mainApp.register() }
-            else { try SMAppService.mainApp.unregister() }
+            try applyLaunchAtLogin(settings.value.launchAtLogin)
+            launchAtLoginError = nil
         } catch {
-            Log.app.error("Launch at login change failed: \(error.localizedDescription, privacy: .public)")
+            launchAtLoginError = error.localizedDescription
+            Log.app.error("Launch at login reconciliation failed: \(error.localizedDescription, privacy: .public)")
+            let actualValue = Self.isLaunchAtLoginRegistered()
+            guard settings.value.launchAtLogin != actualValue else { return }
+            var corrected = settings.value
+            corrected.launchAtLogin = actualValue
+            appliedSettings = corrected
+            isReconcilingSettings = true
+            settings.value = corrected
+            isReconcilingSettings = false
+        }
+    }
+
+    private static func isLaunchAtLoginRegistered() -> Bool {
+        switch SMAppService.mainApp.status {
+        case .enabled, .requiresApproval: true
+        default: false
+        }
+    }
+
+    private static func currentLaunchAtLoginStatus() -> String {
+        switch SMAppService.mainApp.status {
+        case .enabled: "Enabled"
+        case .requiresApproval: "Requires approval"
+        case .notFound: "Unavailable in this build"
+        default: "Disabled"
         }
     }
 }

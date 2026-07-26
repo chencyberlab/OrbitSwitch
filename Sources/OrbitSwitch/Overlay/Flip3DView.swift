@@ -43,6 +43,7 @@ final class Flip3DView: SwitcherSurfaceView {
             )
             layer.zPosition = CGFloat(cards.count - placement.relativeIndex)
             card.setSelected(index == selection)
+            card.setAccessibleVisibility(placement.opacity > 0)
         }
     }
 

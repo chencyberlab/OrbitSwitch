@@ -66,6 +66,9 @@ struct CardMetrics {
 
 final class WindowCardView: NSView {
     let representedID: CGWindowID
+    var onAccessibilityActivate: (() -> Void)?
+    var onAccessibilityControlAction: ((WindowControlAction) -> Void)?
+
     private let imageView = NSImageView()
     private let iconView = NSImageView()
     private let appLabel = NSTextField(labelWithString: "")
@@ -152,7 +155,9 @@ final class WindowCardView: NSView {
         ])
         if controlsEnabled { installControls() }
         setAccessibilityElement(true)
+        setAccessibilityRole(.button)
         setAccessibilityLabel("\(window.metadata.appName), \(titleLabel.stringValue)")
+        setAccessibilityHelp("Select this window. Press again to activate it.")
     }
 
     private func installControls() {
@@ -170,7 +175,10 @@ final class WindowCardView: NSView {
             view.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
             view.symbolConfiguration = controlConfiguration(highlighted: false)
             view.alphaValue = 0
-            view.setAccessibilityLabel(label)
+            // The transformed card owns pointer hit testing. VoiceOver actions
+            // are exposed as custom actions on the card instead of inert image
+            // elements that look like buttons but cannot be pressed.
+            view.setAccessibilityElement(false)
             addSubview(view)
             return (action, view)
         }
@@ -219,7 +227,11 @@ final class WindowCardView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func updatePreview(_ preview: CGImage?) {
-        guard let preview else { return }
+        guard let preview else {
+            imageView.image = nil
+            fallbackLabel.isHidden = false
+            return
+        }
         // Previews arrive asynchronously, one by one. A short cross-fade makes
         // each arrival read as continuous motion instead of a hard cut, and a
         // fade stays within what Reduced Motion allows.
@@ -246,6 +258,36 @@ final class WindowCardView: NSView {
             setControlHighlight(nil)
         }
         updateControlVisibility()
+        updateAccessibilityActions()
+    }
+
+    func setAccessibleVisibility(_ visible: Bool) {
+        setAccessibilityHidden(!visible)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onAccessibilityActivate else { return false }
+        onAccessibilityActivate()
+        return true
+    }
+
+    private func updateAccessibilityActions() {
+        guard controlsEnabled, isSelected else {
+            setAccessibilityCustomActions([])
+            return
+        }
+        let labels: [(WindowControlAction, String)] = [
+            (.close, "Close window"),
+            (.minimize, "Minimize window"),
+            (.zoom, "Zoom window")
+        ]
+        setAccessibilityCustomActions(labels.map { action, label in
+            NSAccessibilityCustomAction(name: label) { [weak self] in
+                guard let self, let handler = self.onAccessibilityControlAction else { return false }
+                handler(action)
+                return true
+            }
+        })
     }
 
     private func updateControlVisibility() {

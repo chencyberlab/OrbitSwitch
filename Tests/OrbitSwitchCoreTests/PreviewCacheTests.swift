@@ -51,4 +51,22 @@ final class PreviewCacheTests: XCTestCase {
         let cache = PreviewCache(limit: 2)
         XCTAssertNil(cache.image(for: 42))
     }
+
+    func testRemoveAllDropsEveryRetainedImageAndResetsEvictionOrder() {
+        let cache = PreviewCache(limit: 2)
+        cache.insert(makeImage(), for: 1)
+        cache.insert(makeImage(), for: 2)
+
+        cache.removeAll()
+
+        XCTAssertEqual(cache.count, 0)
+        XCTAssertNil(cache.image(for: 1))
+        XCTAssertNil(cache.image(for: 2))
+
+        cache.insert(makeImage(), for: 3)
+        cache.insert(makeImage(), for: 4)
+        XCTAssertEqual(cache.count, 2)
+        XCTAssertNotNil(cache.image(for: 3))
+        XCTAssertNotNil(cache.image(for: 4))
+    }
 }

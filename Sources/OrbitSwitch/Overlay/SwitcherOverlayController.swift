@@ -24,6 +24,7 @@ final class SwitcherOverlayController {
     private var activateWhenReady = false
     private var presentationRevision = 0
     private var previewFill: Task<Void, Never>?
+    private var closeVerificationTasks: [CGWindowID: Task<Void, Never>] = [:]
 
     init(discovery: WindowDiscovering = WindowDiscoveryService(), activator: WindowActivating = AccessibilityWindowController()) {
         self.discovery = discovery
@@ -68,6 +69,24 @@ final class SwitcherOverlayController {
         state = .dismissing
         closePanels()
         clear()
+    }
+
+    /// Clears all screen-derived images without requiring an application
+    /// restart. Revoking Screen Recording should update an already visible
+    /// overlay immediately, and session lock/sleep must form a hard privacy
+    /// boundary rather than retaining the previous session's first frame.
+    func purgeCachedPreviews() {
+        if state == .preparing {
+            dismiss()
+        } else {
+            preparation?.cancel()
+        }
+        previewFill?.cancel()
+        previewFill = nil
+        for index in windows.indices { windows[index].preview = nil }
+        panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach { $0.clearPreviews() }
+        let discovery = discovery
+        Task { await discovery.purgePreviews() }
     }
 
     private func prepare(settings: AppSettings, mode: SwitcherMode, initialOffset: Int = 0) {
@@ -178,7 +197,7 @@ final class SwitcherOverlayController {
         }
         switch action {
         case .close:
-            removeWindow(at: index, currentSelection: selection)
+            verifyWindowClosed(windowID)
         case .minimize:
             if settings.includeMinimized {
                 windows[index].metadata.isMinimized = true
@@ -191,6 +210,7 @@ final class SwitcherOverlayController {
     }
 
     private func removeWindow(at index: Int, currentSelection: Int) {
+        closeVerificationTasks.removeValue(forKey: windows[index].id)?.cancel()
         windows.remove(at: index)
         guard !windows.isEmpty else {
             dismiss()
@@ -202,6 +222,36 @@ final class SwitcherOverlayController {
         panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach {
             $0.configure(windows: windows, selection: selection, settings: settings)
         }
+    }
+
+    /// AXPress returning success means the close request was delivered, not
+    /// that the application accepted it. Document apps can keep the window
+    /// alive behind a save-confirmation sheet, so remove the card only after
+    /// Core Graphics confirms that the window ID has actually disappeared.
+    private func verifyWindowClosed(_ windowID: CGWindowID) {
+        closeVerificationTasks.removeValue(forKey: windowID)?.cancel()
+        closeVerificationTasks[windowID] = Task { [weak self] in
+            for _ in 0..<10 {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled, let self,
+                      case .visible(let selection) = self.state,
+                      let index = self.windows.firstIndex(where: { $0.id == windowID }) else { return }
+                guard Self.windowStillExists(windowID) else {
+                    self.removeWindow(at: index, currentSelection: selection)
+                    return
+                }
+            }
+            self?.closeVerificationTasks.removeValue(forKey: windowID)
+        }
+    }
+
+    private static func windowStillExists(_ windowID: CGWindowID) -> Bool {
+        let requestedIDs = [NSNumber(value: windowID)] as CFArray
+        // A Window Server query failure is not evidence that the close
+        // succeeded; err toward retaining the card and let the next discovery
+        // reconcile it.
+        guard let descriptions = CGWindowListCreateDescriptionFromArray(requestedIDs) else { return true }
+        return CFArrayGetCount(descriptions) > 0
     }
 
     private func refreshPreviewSoon(for window: SwitchableWindow) {
@@ -301,6 +351,8 @@ final class SwitcherOverlayController {
         preparation?.cancel()
         previewFill?.cancel()
         previewFill = nil
+        closeVerificationTasks.values.forEach { $0.cancel() }
+        closeVerificationTasks.removeAll()
         presentationRevision += 1
         windows.removeAll()
         preparation = nil

@@ -29,4 +29,13 @@ public final class PreviewCache {
             images.removeValue(forKey: insertionOrder.removeFirst())
         }
     }
+
+    /// Drops every retained thumbnail immediately. Permission revocation and
+    /// session-lock boundaries use this instead of waiting for normal bounded
+    /// eviction, because an image captured under an earlier permission state
+    /// must never be shown after that state changes.
+    public func removeAll() {
+        images.removeAll(keepingCapacity: false)
+        insertionOrder.removeAll(keepingCapacity: false)
+    }
 }
