@@ -174,6 +174,32 @@ class SwitcherSurfaceView: NSView {
         cards.forEach { $0.updatePreview(nil) }
     }
 
+    /// Removes one confirmed-closed window without rebuilding every surviving
+    /// card. Recreating the whole view hierarchy from the delayed AX close
+    /// verification can leave the new layers without a committed frame until
+    /// the next input event; keeping the existing layers also preserves their
+    /// previews and makes the remaining layout update immediate.
+    func removeWindow(id: CGWindowID, selection: Int) {
+        guard let index = windows.firstIndex(where: { $0.id == id }),
+              cards.indices.contains(index) else { return }
+        cards.remove(at: index).removeFromSuperview()
+        windows.remove(at: index)
+        self.selection = Flip3DLayout.wrappedIndex(selection, count: windows.count)
+        updatePositionIndicator()
+        emptyLabel.isHidden = !windows.isEmpty
+
+        if bounds.width > 0, bounds.height > 0 {
+            configureBaseCardGeometry()
+            lastLayoutSize = bounds.size
+            backgroundGradient.frame = background.bounds
+            layoutCards(animated: true)
+            layoutSubtreeIfNeeded()
+            displayIfNeeded()
+            CATransaction.flush()
+        }
+        needsLayout = true
+    }
+
     func updateSelection(_ selection: Int) {
         self.selection = Flip3DLayout.wrappedIndex(selection, count: windows.count)
         updatePositionIndicator()

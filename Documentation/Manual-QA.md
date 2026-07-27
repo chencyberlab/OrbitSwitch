@@ -52,7 +52,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] The bottom position capsule follows selection and wrapping, and stays hidden for zero or one window.
 - [ ] Empty, one-window, and thirty-plus-window sets remain usable.
 - [ ] With more than sixteen windows open, selecting one past the sixteenth still fills in a preview shortly after it is selected, in both styles.
-- [ ] Closing a selected window removes its card only after the window disappears; an unsaved-document confirmation keeps the card present.
+- [ ] Closing a selected window removes only its card after the window disappears; every surviving card remains visible immediately without another Tab press. Verify in both Orbit and Sidebar. An unsaved-document confirmation keeps the card present.
 - [ ] A minimized window restores when macOS exposes it through Accessibility.
 - [ ] With Include Minimized enabled, minimized windows appear; with it disabled, they do not.
 - [ ] With Accessibility enabled and Current Space Only selected, ordinary windows on another Space remain excluded.

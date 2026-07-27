@@ -210,7 +210,8 @@ final class SwitcherOverlayController {
     }
 
     private func removeWindow(at index: Int, currentSelection: Int) {
-        closeVerificationTasks.removeValue(forKey: windows[index].id)?.cancel()
+        let removedID = windows[index].id
+        closeVerificationTasks.removeValue(forKey: removedID)?.cancel()
         windows.remove(at: index)
         guard !windows.isEmpty else {
             dismiss()
@@ -220,8 +221,10 @@ final class SwitcherOverlayController {
         let selection = Flip3DLayout.wrappedIndex(adjusted, count: windows.count)
         state = .visible(selection: selection)
         panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach {
-            $0.configure(windows: windows, selection: selection, settings: settings)
+            $0.removeWindow(id: removedID, selection: selection)
         }
+        announceSelection(selection)
+        fillMissingPreview(at: selection)
     }
 
     /// AXPress returning success means the close request was delivered, not
