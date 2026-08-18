@@ -6,9 +6,10 @@ import OrbitSwitchCore
 /// Subclasses own only where the cards go — `Flip3DView` arranges them as a
 /// perspective staircase, `SidebarView` as a strip docked to one screen edge.
 ///
-/// Cards are positioned by CALayer transforms in both styles, so all card
-/// frames overlap at a common base rect and pointer events must be mapped
-/// through each layer's transform rather than through AppKit's view hierarchy.
+/// Cards are positioned by CALayer transforms in both styles, so their frames
+/// all sit on a common base — one shared rect in the sidebar, a shared center
+/// in the orbit stack — and pointer events must be mapped through each layer's
+/// transform rather than through AppKit's view hierarchy.
 class SwitcherSurfaceView: NSView {
     /// Height of the position capsule. Subclasses place the capsule themselves
     /// and need to know how tall it will be, so this is the single source.
@@ -20,6 +21,8 @@ class SwitcherSurfaceView: NSView {
     var onControlAction: ((WindowControlAction, CGWindowID) -> Void)?
 
     let background = NSView()
+    /// Holds every card, so the stack always composites above the scrim.
+    let cardHost = NSView()
     let backgroundGradient = CAGradientLayer()
     let positionIndicator = NSVisualEffectView()
     private let emptyLabel = NSTextField(labelWithString: L10n.noWindows)
@@ -43,6 +46,16 @@ class SwitcherSurfaceView: NSView {
         background.layer = backgroundGradient
         background.translatesAutoresizingMaskIntoConstraints = false
         addSubview(background)
+        // The cards are children of their own view rather than siblings of the
+        // scrim. Sibling order — subview index, sublayer index, zPosition — did
+        // not reliably keep the scrim behind cards carrying 3D transforms, and
+        // a scrim painting over the stack dims the cards, their labels, and the
+        // position capsule along with the desktop. Containment cannot fail that
+        // way, and it keeps the perspective a card style installs on this host
+        // off the scrim, which must stay flat against the screen.
+        cardHost.wantsLayer = true
+        cardHost.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(cardHost)
         updateBackgroundDimming(settings.backgroundBlur)
         emptyLabel.font = .systemFont(ofSize: 22, weight: .semibold)
         // The scrim is dark in every theme, so this cannot use a semantic label
@@ -76,6 +89,10 @@ class SwitcherSurfaceView: NSView {
             background.trailingAnchor.constraint(equalTo: trailingAnchor),
             background.topAnchor.constraint(equalTo: topAnchor),
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
+            cardHost.leadingAnchor.constraint(equalTo: leadingAnchor),
+            cardHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+            cardHost.topAnchor.constraint(equalTo: topAnchor),
+            cardHost.bottomAnchor.constraint(equalTo: bottomAnchor),
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             positionIndicator.heightAnchor.constraint(equalToConstant: Self.indicatorHeight),
@@ -106,14 +123,15 @@ class SwitcherSurfaceView: NSView {
         ]
     }
 
-    /// Resets every card to the style's common base rect, from which layer
+    /// Resets every card to the style's base geometry, from which layer
     /// transforms place it. Called whenever the surface size changes.
     func configureBaseCardGeometry() {}
 
     /// Applies the style's transforms to each card for the current selection.
     func layoutCards(animated: Bool) {}
 
-    /// Card indices ordered front to back, for pointer hit testing.
+    /// Card indices ordered front to back, for pointer hit testing and for the
+    /// order the cards are stacked in.
     var hitTestOrder: [Int] { Array(cards.indices) }
 
     /// A click that missed every card. The orbit stack ignores it; the sidebar
@@ -151,7 +169,7 @@ class SwitcherSurfaceView: NSView {
             card.onAccessibilityControlAction = { [weak self] action in
                 self?.onControlAction?(action, window.id)
             }
-            addSubview(card, positioned: .above, relativeTo: background)
+            cardHost.addSubview(card)
             return card
         }
         emptyLabel.isHidden = !windows.isEmpty
@@ -159,7 +177,7 @@ class SwitcherSurfaceView: NSView {
             configureBaseCardGeometry()
             lastLayoutSize = bounds.size
             backgroundGradient.frame = bounds
-            layoutCards(animated: false)
+            applyCardLayout(animated: false)
         }
         needsLayout = true
     }
@@ -192,7 +210,7 @@ class SwitcherSurfaceView: NSView {
             configureBaseCardGeometry()
             lastLayoutSize = bounds.size
             backgroundGradient.frame = background.bounds
-            layoutCards(animated: true)
+            applyCardLayout(animated: true)
             layoutSubtreeIfNeeded()
             displayIfNeeded()
             CATransaction.flush()
@@ -203,7 +221,7 @@ class SwitcherSurfaceView: NSView {
     func updateSelection(_ selection: Int) {
         self.selection = Flip3DLayout.wrappedIndex(selection, count: windows.count)
         updatePositionIndicator()
-        layoutCards(animated: true)
+        applyCardLayout(animated: true)
     }
 
     private func activateCardForAccessibility(id: CGWindowID) {
@@ -220,7 +238,7 @@ class SwitcherSurfaceView: NSView {
         configureBaseCardGeometry()
         lastLayoutSize = bounds.size
         backgroundGradient.frame = background.bounds
-        layoutCards(animated: false)
+        applyCardLayout(animated: false)
         displayIfNeeded()
         CATransaction.flush()
     }
@@ -252,6 +270,40 @@ class SwitcherSurfaceView: NSView {
         layer.add(shrink, forKey: "orbit.materialize")
     }
 
+    /// Places the cards and then puts the view hierarchy in the same order, so
+    /// what is painted on top is what the style says is in front.
+    private func applyCardLayout(animated: Bool) {
+        layoutCards(animated: animated)
+        restackCards()
+    }
+
+    /// Card layers are siblings under one layer-backed view, and AppKit — not
+    /// this code — owns their compositing order there, so `layer.zPosition` is
+    /// not a dependable stacking control. When it is disregarded the cards sit
+    /// in the order they were added, which puts everything ahead of the
+    /// selection in the window list on top of the selected card. Keeping the
+    /// depth order in `subviews` is what makes the front card actually front.
+    private func restackCards() {
+        guard !cards.isEmpty else { return }
+        let backToFront = hitTestOrder.reversed().compactMap {
+            cards.indices.contains($0) ? cards[$0] : nil
+        }
+        guard backToFront.count == cards.count, backToFront != cardHost.subviews else { return }
+        cardHost.subviews = backToFront
+    }
+
+    /// AppKit syncs a view's frame onto its backing layer during the display
+    /// cycle, and that sync clears the layer's `transform`. Every path that
+    /// places cards sets their frames first, so the placements applied right
+    /// after are wiped before the first frame is drawn and the whole stack
+    /// collapses onto the shared base geometry. Re-applying here — after
+    /// layout, once the frames are committed — is what makes the arrangement
+    /// survive the pass that created the layers.
+    override func viewWillDraw() {
+        super.viewWillDraw()
+        applyCardLayout(animated: false)
+    }
+
     override func layout() {
         super.layout()
         backgroundGradient.frame = background.bounds
@@ -259,7 +311,7 @@ class SwitcherSurfaceView: NSView {
             configureBaseCardGeometry()
             lastLayoutSize = bounds.size
         }
-        layoutCards(animated: false)
+        applyCardLayout(animated: false)
     }
 
     // MARK: - Input
@@ -354,10 +406,11 @@ class SwitcherSurfaceView: NSView {
     }
 
     /// Maps the click through each card layer's transform, front to back, to
-    /// find what was really hit. AppKit's own hit testing cannot: every card
-    /// shares the same untransformed frame.
+    /// find what was really hit. AppKit's own hit testing cannot: the cards all
+    /// sit on one base geometry and only their layer transforms tell them
+    /// apart.
     private func cardHit(at point: NSPoint) -> (index: Int, localPoint: NSPoint)? {
-        guard let rootLayer = layer else { return nil }
+        guard let rootLayer = cardHost.layer else { return nil }
         for index in hitTestOrder {
             guard cards.indices.contains(index), let cardLayer = cards[index].layer else { continue }
             guard (cardLayer.presentation()?.opacity ?? cardLayer.opacity) > 0.1 else { continue }

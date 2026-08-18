@@ -34,8 +34,16 @@ public enum Flip3DLayout {
     ///
     /// x/y/scale are raw layer-transform values pre-multiplied by the m34
     /// projection divisor `w = 1 + perspective * |z|`, so the *projected*
-    /// staircase keeps uniform, converging steps. Applying them without an
-    /// m34 of -perspective will not land cards where intended.
+    /// staircase keeps uniform, converging steps. That divisor has to come from
+    /// one projection shared by the whole stack, anchored at the point the
+    /// cards are centred on — `Flip3DView` puts it on the card host. Giving
+    /// each card its own m34 projects it about its own layer origin instead,
+    /// and the cancellation these values rely on does not happen.
+    ///
+    /// Every card the stack shows is opaque. Fading them by depth turned each
+    /// card into a gray film over the ones behind it, so overlapping cards
+    /// washed into one another instead of showing their own window; depth is
+    /// carried by the staircase, the shrink, and the shadow instead.
     public static func placements(
         count: Int,
         selection: Int,
@@ -64,7 +72,7 @@ public enum Flip3DLayout {
                 y: stepY * run * w,
                 z: z,
                 scale: max(minimumScale, pow(scaleDecay, depth)) * w,
-                opacity: hidden ? 0 : max(0.30, 1 - depth * 0.062),
+                opacity: hidden ? 0 : 1,
                 angleDegrees: -angle
             )
         }
