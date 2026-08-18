@@ -11,6 +11,15 @@ public struct Flip3DPlacement: Equatable, Sendable {
 }
 
 public enum Flip3DLayout {
+    /// Allowed stack angle, in degrees. Only non-positive values are offered:
+    /// positive angles yaw the cards the wrong way and break the view, so the
+    /// setting range ends at zero.
+    public static let stackAngleRange = -28.0...0.0
+
+    public static func clampedStackAngle(_ angle: Double) -> Double {
+        min(stackAngleRange.upperBound, max(stackAngleRange.lowerBound, angle))
+    }
+
     /// Ratio between consecutive staircase steps. Values < 1 make the stack
     /// converge toward a vanishing point instead of marching off screen, and
     /// bound the total run at firstStep / (1 - stepDecay).

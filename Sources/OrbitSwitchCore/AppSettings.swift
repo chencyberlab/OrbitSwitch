@@ -71,7 +71,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var sidebarTileWidth = 260.0
 
     public var perspectiveStrength = 0.00115
-    public var stackAngle = 13.0
+    public var stackAngle = 0.0
     public var cardSpacing = 66.0
     public var animationDuration = 0.28
     public var thumbnailQuality = ThumbnailQuality.medium
@@ -211,6 +211,11 @@ public final class SettingsPersistence {
         let tileWidth = SidebarLayout.clampedTileWidth(settings.sidebarTileWidth)
         if tileWidth != settings.sidebarTileWidth {
             settings.sidebarTileWidth = tileWidth
+            changed = true
+        }
+        let stackAngle = Flip3DLayout.clampedStackAngle(settings.stackAngle)
+        if stackAngle != settings.stackAngle {
+            settings.stackAngle = stackAngle
             changed = true
         }
         return changed

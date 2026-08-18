@@ -79,10 +79,23 @@ final class SettingsStoreTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let persistence = SettingsPersistence(defaults: defaults)
         var settings = AppSettings()
-        settings.stackAngle = 21
+        settings.stackAngle = -21
         settings.includeMinimized = true
         persistence.save(settings)
         XCTAssertEqual(persistence.load(), settings)
+    }
+
+    func testPersistenceClampsPositiveStackAngles() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.stackAngle = 21
+        persistence.save(settings)
+
+        XCTAssertEqual(persistence.load().stackAngle, 0)
+        XCTAssertEqual(persistence.load().stackAngle, Flip3DLayout.stackAngleRange.upperBound)
     }
 
     func testMigratesLegacyShortcutSettings() throws {

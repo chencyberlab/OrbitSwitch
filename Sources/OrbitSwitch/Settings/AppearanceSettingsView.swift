@@ -48,7 +48,7 @@ struct AppearanceSettingsView: View {
     private var orbitSection: some View {
         Section("3D Stack") {
             integerSlider("Perspective strength", value: perspectivePercentage, range: 0...100, suffix: "%")
-            integerSlider("Stack angle", value: settings.binding(\.stackAngle), range: -28...28, suffix: "°")
+            integerSlider("Stack angle", value: settings.binding(\.stackAngle), range: Flip3DLayout.stackAngleRange, suffix: "°")
             integerSlider("Card spacing", value: settings.binding(\.cardSpacing), range: 24...110, suffix: " pt")
             sharedControls
         }
