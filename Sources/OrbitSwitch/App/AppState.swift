@@ -155,6 +155,9 @@ final class AppState: ObservableObject {
     }
 
     func applyShortcut(_ shortcut: ShortcutDefinition?, for action: ShortcutAction, allowingWarning: Bool = false) -> ShortcutUpdateResult {
+        if let shortcut, !shortcut.hasOnlySupportedModifiers {
+            return .rejected("This shortcut contains modifier flags OrbitSwitch does not support.")
+        }
         if let shortcut, action != .dismiss, !shortcut.isSuitableForGlobalRegistration {
             return .rejected("Global shortcuts require at least one modifier key.")
         }

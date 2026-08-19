@@ -1,8 +1,10 @@
+import OrbitSwitchCore
 import SwiftUI
 
 struct FilteringSettingsView: View {
     @EnvironmentObject private var settings: SettingsStore
     @State private var excludedAppsText = ""
+    @State private var excludedAppsCommit: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -17,26 +19,44 @@ struct FilteringSettingsView: View {
             Toggle("Ignore transient utility panels", isOn: settings.binding(\.ignoreUtilityPanels))
             LabeledContent("Minimum window width") {
                 HStack {
-                    Slider(value: settings.binding(\.minimumWindowWidth), in: 80...500).frame(width: 250)
+                    Slider(value: settings.binding(\.minimumWindowWidth), in: AppSettings.minimumWindowWidthRange)
+                        .frame(width: 250)
                     Text("\(settings.value.minimumWindowWidth, specifier: "%.0f") pt").monospacedDigit()
                 }
             }
             LabeledContent("Minimum window height") {
                 HStack {
-                    Slider(value: settings.binding(\.minimumWindowHeight), in: 60...400).frame(width: 250)
+                    Slider(value: settings.binding(\.minimumWindowHeight), in: AppSettings.minimumWindowHeightRange)
+                        .frame(width: 250)
                     Text("\(settings.value.minimumWindowHeight, specifier: "%.0f") pt").monospacedDigit()
                 }
             }
             TextField("Excluded bundle identifiers (comma separated)", text: $excludedAppsText)
                 .textFieldStyle(.roundedBorder)
-                .onSubmit(commitExcludedApps)
-            Text("Press Return to apply. Example: com.example.privateapp. OrbitSwitch stores this list only on this Mac.")
+                .onSubmit {
+                    excludedAppsCommit?.cancel()
+                    commitExcludedApps()
+                }
+                .onChange(of: excludedAppsText) { _, _ in scheduleExcludedAppsCommit() }
+            Text("Changes apply after a short pause or when you press Return. Example: com.example.privateapp. OrbitSwitch stores this list only on this Mac.")
                 .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .padding()
         .onAppear { excludedAppsText = settings.value.excludedBundleIdentifiers.joined(separator: ", ") }
-        .onDisappear(perform: commitExcludedApps)
+        .onDisappear {
+            excludedAppsCommit?.cancel()
+            commitExcludedApps()
+        }
+    }
+
+    private func scheduleExcludedAppsCommit() {
+        excludedAppsCommit?.cancel()
+        excludedAppsCommit = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            commitExcludedApps()
+        }
     }
 
     private func commitExcludedApps() {

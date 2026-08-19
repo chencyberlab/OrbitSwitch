@@ -10,14 +10,15 @@ struct OnboardingView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tint)
             Text("Welcome to OrbitSwitch").font(.largeTitle.bold())
-            Text("OrbitSwitch needs two macOS permissions for its complete experience. You can continue without either permission and enable it later.")
+            Text("OrbitSwitch uses two optional macOS permissions for its complete experience. You can continue without either one and enable it later.")
                 .frame(maxWidth: 500, alignment: .leading)
             GroupBox("Accessibility") {
                 HStack {
-                    Text("Focuses the exact window you select.")
+                    Text("Focuses the exact window you select and enables optional Dock Peek.")
                     Spacer()
                     Button("Request") { appState.requestAccessibility() }
                         .disabled(appState.permissionStatus.accessibility)
+                    Button("Open Settings") { PermissionService.openAccessibilitySettings() }
                 }.padding(6)
             }
             GroupBox("Screen Recording") {
@@ -26,6 +27,7 @@ struct OnboardingView: View {
                     Spacer()
                     Button("Request") { appState.requestScreenRecording() }
                         .disabled(appState.permissionStatus.screenRecording)
+                    Button("Open Settings") { PermissionService.openScreenRecordingSettings() }
                 }.padding(6)
             }
             Text("Everything stays on this Mac. OrbitSwitch never saves or transmits window previews or titles.")

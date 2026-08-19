@@ -79,14 +79,22 @@ final class WindowCardView: NSView {
     /// transforms.
     private var controls: [(action: WindowControlAction, view: NSImageView)] = []
     private let controlsEnabled: Bool
+    private let exposesControlsToAccessibilityWhenUnselected: Bool
     private let metrics: CardMetrics
     private var isSelected = false
     private var controlsHovered = false
     private var controlsAreVisible = false
 
-    init(window: SwitchableWindow, settings: AppSettings, metrics: CardMetrics = .regular) {
+    init(
+        window: SwitchableWindow,
+        settings: AppSettings,
+        metrics: CardMetrics = .regular,
+        accessibilityHelp: String = "Select this window. Press again to activate it.",
+        exposesControlsToAccessibilityWhenUnselected: Bool = false
+    ) {
         representedID = window.id
         controlsEnabled = settings.showWindowControls
+        self.exposesControlsToAccessibilityWhenUnselected = exposesControlsToAccessibilityWhenUnselected
         self.metrics = metrics
         super.init(frame: .zero)
         wantsLayer = true
@@ -133,6 +141,16 @@ final class WindowCardView: NSView {
         titleLabel.isHidden = !settings.showWindowTitle
 
         let inset = metrics.contentInset
+        let labelLeading = settings.showAppIcon
+            ? appLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: inset - 4)
+            : appLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 2)
+        let showsTwoLabelRows = settings.showAppName && settings.showWindowTitle
+        let appLabelVertical = showsTwoLabelRows
+            ? appLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -(metrics.footerHeight / 2 + 1))
+            : appLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor)
+        let titleLabelVertical = showsTwoLabelRows
+            ? titleLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 1)
+            : titleLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor, constant: inset),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
@@ -146,25 +164,24 @@ final class WindowCardView: NSView {
             iconView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -(metrics.footerHeight - metrics.iconSize) / 2),
             iconView.widthAnchor.constraint(equalToConstant: metrics.iconSize),
             iconView.heightAnchor.constraint(equalToConstant: metrics.iconSize),
-            appLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: inset - 4),
+            // Hidden views still participate in Auto Layout. Anchor labels to
+            // the card when the icon is hidden so its empty slot is genuinely
+            // returned to long window titles.
+            labelLeading,
             appLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(inset + 2)),
-            appLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -(metrics.footerHeight / 2 + 1)),
+            appLabelVertical,
             titleLabel.leadingAnchor.constraint(equalTo: appLabel.leadingAnchor),
             titleLabel.trailingAnchor.constraint(equalTo: appLabel.trailingAnchor),
-            // A hidden view still participates in layout, so the title would
-            // otherwise keep hanging below an invisible app label and sit low in
-            // the footer. With no app name above it, the title is the label row
-            // and gets centered on it. Dock Peek hides the app name by default,
-            // where it is redundant.
-            settings.showAppName
-                ? titleLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 1)
-                : titleLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor)
+            // Two visible labels form a stack. With either one hidden, the
+            // remaining row is centered instead of reserving space for text
+            // that is not drawn.
+            titleLabelVertical
         ])
         if controlsEnabled { installControls() }
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel("\(window.metadata.appName), \(titleLabel.stringValue)")
-        setAccessibilityHelp("Select this window. Press again to activate it.")
+        setAccessibilityHelp(accessibilityHelp)
     }
 
     private func installControls() {
@@ -279,7 +296,7 @@ final class WindowCardView: NSView {
     }
 
     private func updateAccessibilityActions() {
-        guard controlsEnabled, isSelected else {
+        guard controlsEnabled, isSelected || exposesControlsToAccessibilityWhenUnselected else {
             setAccessibilityCustomActions([])
             return
         }

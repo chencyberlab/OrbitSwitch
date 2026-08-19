@@ -62,9 +62,15 @@ final class AccessibilityWindowController: WindowActivating {
         guard let primaryMaxY = screens.first?.frame.maxY else {
             throw WindowActivationError.actionUnavailable
         }
-        let screen = AXGeometry.axFrame(of: windowElement).flatMap { frame -> NSScreen? in
+        let originalFrame = AXGeometry.axFrame(of: windowElement)
+        let screen = originalFrame.flatMap { frame -> NSScreen? in
             let cocoaFrame = AXGeometry.cocoaRect(fromAX: frame, primaryMaxY: primaryMaxY)
-            return screens.first { $0.frame.intersects(cocoaFrame) }
+            return screens.filter { $0.frame.intersects(cocoaFrame) }.max { left, right in
+                let leftIntersection = left.frame.intersection(cocoaFrame)
+                let rightIntersection = right.frame.intersection(cocoaFrame)
+                return leftIntersection.width * leftIntersection.height
+                    < rightIntersection.width * rightIntersection.height
+            }
         } ?? NSScreen.main ?? screens[0]
 
         let visible = screen.visibleFrame
@@ -77,6 +83,26 @@ final class AccessibilityWindowController: WindowActivating {
         let positionSet = AXUIElementSetAttributeValue(windowElement, kAXPositionAttribute as CFString, positionValue) == .success
         let sizeSet = AXUIElementSetAttributeValue(windowElement, kAXSizeAttribute as CFString, sizeValue) == .success
         if !positionSet || !sizeSet {
+            // Some applications accept only one of the two writes. Restore the
+            // original geometry before invoking their own zoom button so the
+            // fallback does not start from a half-moved, half-resized window.
+            if let originalFrame {
+                var originalPosition = originalFrame.origin
+                var originalSize = originalFrame.size
+                if let originalPositionValue = AXValueCreate(.cgPoint, &originalPosition),
+                   let originalSizeValue = AXValueCreate(.cgSize, &originalSize) {
+                    AXUIElementSetAttributeValue(
+                        windowElement,
+                        kAXPositionAttribute as CFString,
+                        originalPositionValue
+                    )
+                    AXUIElementSetAttributeValue(
+                        windowElement,
+                        kAXSizeAttribute as CFString,
+                        originalSizeValue
+                    )
+                }
+            }
             try press(buttonAttribute: kAXZoomButtonAttribute, of: windowElement)
         }
     }

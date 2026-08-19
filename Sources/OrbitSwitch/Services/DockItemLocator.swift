@@ -54,15 +54,19 @@ final class DockItemLocator {
         )
     }
 
-    /// The hit element is usually the dock item itself, but the Dock nests a
-    /// child element under some icons. One step up is enough to reach the item.
+    /// The hit element is usually the dock item itself, but badges and other
+    /// Dock chrome can add nested children. Walk a small bounded ancestor chain
+    /// rather than assuming exactly one level.
     private func applicationDockItem(from element: AXUIElement) -> AXUIElement? {
-        if isApplicationDockItem(element) { return element }
-        var parent: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parent) == .success,
-              let parent, CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
-        let candidate = parent as! AXUIElement
-        return isApplicationDockItem(candidate) ? candidate : nil
+        var candidate = element
+        for _ in 0..<4 {
+            if isApplicationDockItem(candidate) { return candidate }
+            var parent: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(candidate, kAXParentAttribute as CFString, &parent) == .success,
+                  let parent, CFGetTypeID(parent) == AXUIElementGetTypeID() else { return nil }
+            candidate = parent as! AXUIElement
+        }
+        return nil
     }
 
     /// The subrole is what separates an application icon from Trash, a stack,
@@ -86,7 +90,11 @@ final class DockItemLocator {
             }
         }
         guard let title = string(kAXTitleAttribute, of: element), !title.isEmpty else { return nil }
-        return running.first { $0.activationPolicy == .regular && $0.localizedName == title }
+        // A title fallback is safe only when unique. Two applications can have
+        // the same localized display name; picking the first would show and
+        // potentially control the wrong process's windows.
+        let matches = running.filter { $0.activationPolicy == .regular && $0.localizedName == title }
+        return matches.count == 1 ? matches[0] : nil
     }
 
     private func dockElement() -> AXUIElement? {

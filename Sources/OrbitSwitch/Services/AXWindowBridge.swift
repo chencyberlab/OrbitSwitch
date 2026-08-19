@@ -18,7 +18,8 @@ enum AXWindowBridge {
     /// nil when the symbol cannot resolve it.
     static func windowID(of element: AXUIElement) -> CGWindowID? {
         var windowID: CGWindowID = 0
-        guard _AXUIElementGetWindow(element, &windowID) == .success else { return nil }
+        guard _AXUIElementGetWindow(element, &windowID) == .success,
+              windowID != kCGNullWindowID else { return nil }
         return windowID
     }
 }

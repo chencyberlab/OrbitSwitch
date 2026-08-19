@@ -16,18 +16,21 @@ struct SwitchableWindow: Identifiable {
 }
 
 protocol WindowDiscovering: Sendable {
-    func discover(settings: AppSettings) async -> [SwitchableWindow]
+    /// `ownerPID` scopes metadata and Accessibility enrichment at the source.
+    /// The switcher passes nil; Dock Peek already knows which app was hovered.
+    func discover(settings: AppSettings, ownerPID: pid_t?) async -> [SwitchableWindow]
     func capturePreviews(
         for windows: [SwitchableWindow],
         settings: AppSettings,
+        maximumCount: Int,
         onPreview: @escaping @Sendable @MainActor (CGWindowID, CGImage) -> Void
     ) async
     func purgePreviews() async
 }
 
 /// An actor, not a class: the overlay runs several capture passes against this
-/// service at once — the one that fills the stack when it opens, the on-demand
-/// one for a selection past that prefix, and the refresh after a zoom. They all
+/// service at once — the one that fills the stack when it opens, an on-demand
+/// selection or visible Dock Peek batch, and the refresh after a zoom. They all
 /// execute off the main actor, so the preview cache and the prefetched content
 /// handle need an isolation domain of their own. The expensive work stays off
 /// the main thread, which is the whole reason this is not `@MainActor`.
@@ -41,7 +44,7 @@ actor WindowDiscoveryService: WindowDiscovering {
     /// overlay's first frame and the first capture.
     private var prefetchedContent: Task<SCShareableContent, Error>?
 
-    func discover(settings: AppSettings) async -> [SwitchableWindow] {
+    func discover(settings: AppSettings, ownerPID: pid_t?) async -> [SwitchableWindow] {
         let canUsePreviews = PermissionService.status.screenRecording
         prefetchedContent?.cancel()
         if !canUsePreviews { previewCache.removeAll() }
@@ -52,28 +55,50 @@ actor WindowDiscoveryService: WindowDiscovering {
             ? [.optionOnScreenOnly, .excludeDesktopElements]
             : [.optionAll, .excludeDesktopElements]
         guard let dictionaries = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let relevantDictionaries: [[String: Any]]
+        if let ownerPID {
+            relevantDictionaries = dictionaries.filter { dictionary in
+                guard let number = dictionary[kCGWindowOwnerPID as String] as? NSNumber else { return false }
+                return pid_t(number.intValue) == ownerPID
+            }
+        } else {
+            relevantDictionaries = dictionaries
+        }
 
         // The window list holds every layer on screen — often a few hundred
         // entries across a couple of dozen processes — and each entry needs its
         // owning application twice (policy and bundle ID during filtering, icon
         // afterward). Memoizing per PID keeps that to one lookup per process on
         // the path that runs before the overlay's first frame.
-        var applicationsByPID: [pid_t: NSRunningApplication?] = [:]
+        var applicationsByPID: [pid_t: NSRunningApplication] = [:]
+        var lookedUpApplicationPIDs = Set<pid_t>()
         func application(for pid: pid_t) -> NSRunningApplication? {
-            if let cached = applicationsByPID[pid] { return cached }
+            if lookedUpApplicationPIDs.contains(pid) { return applicationsByPID[pid] }
+            lookedUpApplicationPIDs.insert(pid)
             let application = NSRunningApplication(processIdentifier: pid)
-            applicationsByPID[pid] = application
+            if let application { applicationsByPID[pid] = application }
             return application
         }
-        var iconsByPID: [pid_t: NSImage?] = [:]
+        var iconsByPID: [pid_t: NSImage] = [:]
+        var lookedUpIconPIDs = Set<pid_t>()
         func icon(for pid: pid_t) -> NSImage? {
-            if let cached = iconsByPID[pid] { return cached }
+            if lookedUpIconPIDs.contains(pid) { return iconsByPID[pid] }
+            lookedUpIconPIDs.insert(pid)
             let icon = application(for: pid)?.icon
-            iconsByPID[pid] = icon
+            if let icon { iconsByPID[pid] = icon }
             return icon
         }
 
-        var metadata = dictionaries.compactMap { Self.metadata(from: $0, application: application) }
+        var metadata: [WindowMetadata] = []
+        metadata.reserveCapacity(relevantDictionaries.count)
+        for dictionary in relevantDictionaries {
+            guard let number = dictionary[kCGWindowOwnerPID as String] as? NSNumber,
+                  let item = Self.metadata(
+                      from: dictionary,
+                      runningApplication: application(for: pid_t(number.intValue))
+                  ) else { continue }
+            metadata.append(item)
+        }
         let states = Self.accessibilityWindowStates(
             for: Set(metadata.lazy.filter {
                 !$0.isOnScreen && $0.ownerPID != getpid() && $0.isRegularApplication && $0.layer == 0
@@ -85,13 +110,23 @@ actor WindowDiscoveryService: WindowDiscovering {
             unidentifiedByPID: states.unidentifiedByPID
         )
         let eligible = WindowFilter.filtered(metadata, settings: settings, ownPID: getpid())
-        return eligible.map { item in
-            SwitchableWindow(
+        var discovered: [SwitchableWindow] = []
+        discovered.reserveCapacity(eligible.count)
+        for item in eligible {
+            discovered.append(SwitchableWindow(
                 metadata: item,
                 appIcon: icon(for: item.ownerPID),
                 preview: canUsePreviews ? previewCache.image(for: item.id) : nil
-            )
+            ))
         }
+        if discovered.isEmpty {
+            // There will be no capture pass to consume the speculative content
+            // enumeration. Do not retain it after hovering an app with no
+            // eligible windows (or opening an empty switcher).
+            prefetchedContent?.cancel()
+            prefetchedContent = nil
+        }
+        return discovered
     }
 
     func purgePreviews() async {
@@ -107,8 +142,10 @@ actor WindowDiscoveryService: WindowDiscovering {
     func capturePreviews(
         for windows: [SwitchableWindow],
         settings: AppSettings,
+        maximumCount: Int,
         onPreview: @escaping @Sendable @MainActor (CGWindowID, CGImage) -> Void
     ) async {
+        guard maximumCount > 0, !windows.isEmpty else { return }
         guard PermissionService.status.screenRecording else {
             prefetchedContent?.cancel()
             prefetchedContent = nil
@@ -124,7 +161,7 @@ actor WindowDiscoveryService: WindowDiscovering {
                 content = try await Self.shareableContent(settings: settings)
             }
             let sharedWindows = Dictionary(content.windows.map { ($0.windowID, $0) }) { existing, _ in existing }
-            let targets = windows.prefix(16).compactMap { window -> (CGWindowID, SCWindow)? in
+            let targets = windows.prefix(max(0, maximumCount)).compactMap { window -> (CGWindowID, SCWindow)? in
                 guard let shared = sharedWindows[window.id] else { return nil }
                 return (window.id, shared)
             }
@@ -152,10 +189,11 @@ actor WindowDiscoveryService: WindowDiscovering {
                         await deliver(result)
                     }
                     let target = pending.removeFirst()
-                    _ = group.addTaskUnlessCancelled {
+                    let added = group.addTaskUnlessCancelled {
                         guard let image = try? await Self.capture(target.1, maximumWidth: maximumWidth) else { return nil }
                         return (target.0, image)
                     }
+                    guard added else { break }
                     inFlight += 1
                 }
                 while let result = await group.next() {
@@ -174,26 +212,27 @@ actor WindowDiscoveryService: WindowDiscovering {
 
     private static func metadata(
         from dictionary: [String: Any],
-        application: (pid_t) -> NSRunningApplication?
+        runningApplication: NSRunningApplication?
     ) -> WindowMetadata? {
         guard let number = dictionary[kCGWindowNumber as String] as? NSNumber,
               let ownerPID = dictionary[kCGWindowOwnerPID as String] as? NSNumber,
               let ownerName = dictionary[kCGWindowOwnerName as String] as? String,
               let boundsDictionary = dictionary[kCGWindowBounds as String] as? NSDictionary,
               let frame = CGRect(dictionaryRepresentation: boundsDictionary) else { return nil }
-        let runningApp = application(pid_t(ownerPID.intValue))
+        let windowID = CGWindowID(number.uint32Value)
+        guard windowID != kCGNullWindowID else { return nil }
         return WindowMetadata(
-            id: CGWindowID(number.uint32Value),
+            id: windowID,
             ownerPID: pid_t(ownerPID.intValue),
             appName: ownerName,
-            bundleIdentifier: runningApp?.bundleIdentifier,
+            bundleIdentifier: runningApplication?.bundleIdentifier,
             title: dictionary[kCGWindowName as String] as? String ?? "",
             frame: frame,
             layer: (dictionary[kCGWindowLayer as String] as? NSNumber)?.intValue ?? 0,
             alpha: (dictionary[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1,
             isOnScreen: (dictionary[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false,
-            isRegularApplication: runningApp?.activationPolicy == .regular,
-            isApplicationHidden: runningApp?.isHidden ?? false
+            isRegularApplication: runningApplication?.activationPolicy == .regular,
+            isApplicationHidden: runningApplication?.isHidden ?? false
         )
     }
 
@@ -244,8 +283,15 @@ actor WindowDiscoveryService: WindowDiscovering {
                   let windows = windowsValue as? [AXUIElement] else { continue }
             for window in windows {
                 var minimizedValue: CFTypeRef?
-                AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
-                let isMinimized = minimizedValue as? Bool ?? false
+                // A failed or unsupported attribute read is unknown, not
+                // "not minimized". Recording false here would admit ambiguous
+                // off-screen helper surfaces whenever Current Space is off.
+                guard AXUIElementCopyAttributeValue(
+                    window,
+                    kAXMinimizedAttribute as CFString,
+                    &minimizedValue
+                ) == .success,
+                    let isMinimized = minimizedValue as? Bool else { continue }
                 if let windowID = AXWindowBridge.windowID(of: window) {
                     result.minimizedByWindowID[windowID] = isMinimized
                     continue

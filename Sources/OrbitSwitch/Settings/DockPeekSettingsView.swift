@@ -10,13 +10,17 @@ struct DockPeekSettingsView: View {
             Section("Dock Peek") {
                 Toggle(isOn: settings.binding(\.dockPeekEnabled)) {
                     Text("Preview windows on Dock hover")
-                    Text("Resting the pointer on a running app's icon in the Dock shows every window that app has, side by side. Click one to bring it forward.")
+                    Text("Resting the pointer on a running app's icon in the Dock shows every window that app has in a compact preview panel. Click one to bring it forward.")
                 }
                 if !appState.permissionStatus.accessibility {
                     Label("Accessibility permission required", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
-                    Text("Dock Peek asks the Dock which icon the pointer is over, which macOS allows only with Accessibility permission. Grant it under Permissions; Dock Peek starts as soon as it is allowed.")
+                    Text("Dock Peek asks the Dock which icon the pointer is over, which macOS allows only with Accessibility permission. It starts as soon as access is allowed.")
                         .foregroundStyle(.secondary)
+                    HStack {
+                        Button("Request Access") { appState.requestAccessibility() }
+                        Button("Open System Settings") { PermissionService.openAccessibilitySettings() }
+                    }
                 }
             }
             Section("Size and Timing") {
@@ -45,7 +49,7 @@ struct DockPeekSettingsView: View {
                             .frame(width: 72, alignment: .trailing)
                     }
                 }
-                Text("Previews shrink from this size when an app has more windows than fit across the display, and wrap onto a second row only once they would otherwise become unreadable.")
+                Text("Previews shrink from this size when an app has more windows than fit across the display, then wrap into a grid of up to three visible rows. Longer lists scroll.")
                     .foregroundStyle(.secondary)
             }
             .disabled(!settings.value.dockPeekEnabled)

@@ -16,7 +16,7 @@ struct PermissionsSettingsView: View {
             permissionRow(
                 title: "Accessibility",
                 allowed: appState.permissionStatus.accessibility,
-                explanation: "Raises the selected window and restores minimized windows.",
+                explanation: "Raises the exact selected window, restores minimized windows, and enables optional Dock Peek.",
                 request: appState.requestAccessibility,
                 open: PermissionService.openAccessibilitySettings
             )

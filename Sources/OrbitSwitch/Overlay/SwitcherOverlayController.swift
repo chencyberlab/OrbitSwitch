@@ -34,6 +34,7 @@ final class SwitcherOverlayController {
     private var activateWhenReady = false
     private var presentationRevision = 0
     private var previewFill: Task<Void, Never>?
+    private var previewRefresh: Task<Void, Never>?
     private var closeVerificationTasks: [CGWindowID: Task<Void, Never>] = [:]
 
     init(discovery: WindowDiscovering = WindowDiscoveryService(), activator: WindowActivating = AccessibilityWindowController()) {
@@ -93,6 +94,8 @@ final class SwitcherOverlayController {
         }
         previewFill?.cancel()
         previewFill = nil
+        previewRefresh?.cancel()
+        previewRefresh = nil
         for index in windows.indices { windows[index].preview = nil }
         panels.compactMap { $0.contentView as? SwitcherSurfaceView }.forEach { $0.clearPreviews() }
         let discovery = discovery
@@ -106,20 +109,41 @@ final class SwitcherOverlayController {
         pendingOffset = initialOffset
         activateWhenReady = false
         let canCapture = PermissionService.status.screenRecording
+        var discoverySettings = settings
+        let ownerPID: pid_t?
+        switch mode {
+        case .allWindows:
+            ownerPID = nil
+        case .onePerApplication:
+            discoverySettings.groupByApplication = true
+            ownerPID = nil
+        case .currentApplication:
+            discoverySettings = settings.currentApplicationDiscovery
+            // Snapshot the app at invocation time. Reading this after the
+            // asynchronous discovery can target whichever app happened to
+            // become frontmost while OrbitSwitch was preparing instead.
+            ownerPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        }
         preparation = Task { [weak self] in
             guard let self else { return }
-            var adjusted = settings
-            if mode == .onePerApplication { adjusted.groupByApplication = true }
-            var discovered = await discovery.discover(settings: adjusted)
-            guard !Task.isCancelled else { return }
-            if mode == .currentApplication, let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier {
-                discovered = discovered.filter { $0.metadata.ownerPID == frontPID }
+            let discovered: [SwitchableWindow]
+            if mode == .currentApplication, ownerPID == nil {
+                // No frontmost application is a valid transient state. It is
+                // not a reason for a current-app shortcut to show every app.
+                discovered = []
+            } else {
+                discovered = await discovery.discover(settings: discoverySettings, ownerPID: ownerPID)
             }
+            guard !Task.isCancelled else { return }
             windows = discovered
             present()
             guard canCapture, !Task.isCancelled, !windows.isEmpty else { return }
             let captureTargets = windows
-            await discovery.capturePreviews(for: captureTargets, settings: adjusted) { [weak self] id, image in
+            await discovery.capturePreviews(
+                for: captureTargets,
+                settings: discoverySettings,
+                maximumCount: PreviewCache.defaultLimit
+            ) { [weak self] id, image in
                 guard let self, !Task.isCancelled, case .visible = self.state else { return }
                 if let index = self.windows.firstIndex(where: { $0.id == id }) {
                     self.windows[index].preview = image
@@ -172,6 +196,11 @@ final class SwitcherOverlayController {
         let initialSelection = Flip3DLayout.wrappedIndex(pendingOffset, count: windows.count)
         state = .visible(selection: initialSelection)
         announceSelection(initialSelection)
+        if initialSelection >= PreviewCache.defaultLimit {
+            // Repeated shortcut events can move the initial selection past the
+            // bounded opening capture while discovery is still running.
+            fillMissingPreview(at: initialSelection)
+        }
         pendingOffset = 0
         presentationRevision += 1
         let revision = presentationRevision
@@ -203,6 +232,7 @@ final class SwitcherOverlayController {
         do { try activator.perform(action, on: windows[index]) }
         catch {
             Log.windows.error("Window control action failed: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
             return
         }
         switch action {
@@ -244,13 +274,29 @@ final class SwitcherOverlayController {
     private func verifyWindowClosed(_ windowID: CGWindowID) {
         closeVerificationTasks.removeValue(forKey: windowID)?.cancel()
         closeVerificationTasks[windowID] = Task { [weak self] in
-            for _ in 0..<10 {
+            for attempt in 0..<10 {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled, let self,
                       case .visible(let selection) = self.state,
                       let index = self.windows.firstIndex(where: { $0.id == windowID }) else { return }
                 guard Self.windowStillExists(windowID) else {
                     self.removeWindow(at: index, currentSelection: selection)
+                    return
+                }
+                if attempt == 2 {
+                    // A normal close has had 600 ms to disappear. If the
+                    // window remains, it usually needs attention in an
+                    // unsaved-document sheet. The full-screen switcher would
+                    // sit above that sheet and block it, so hand control to the
+                    // owning app while keeping fast successful closes in-place.
+                    let target = self.windows[index]
+                    self.dismiss()
+                    do { try self.activator.activate(target) }
+                    catch {
+                        Log.windows.error(
+                            "Could not reveal a window awaiting close confirmation: \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
                     return
                 }
             }
@@ -269,11 +315,18 @@ final class SwitcherOverlayController {
 
     private func refreshPreviewSoon(for window: SwitchableWindow) {
         guard PermissionService.status.screenRecording else { return }
-        Task { [weak self] in
+        previewRefresh?.cancel()
+        previewRefresh = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard let self, case .visible = self.state else { return }
-            await self.discovery.capturePreviews(for: [window], settings: self.settings) { [weak self] id, image in
-                guard let self, case .visible = self.state else { return }
+            guard !Task.isCancelled, let self, case .visible = self.state,
+                  self.windows.contains(where: { $0.id == window.id }) else { return }
+            await self.discovery.capturePreviews(
+                for: [window],
+                settings: self.settings,
+                maximumCount: 1
+            ) { [weak self] id, image in
+                guard let self, !Task.isCancelled, case .visible = self.state,
+                      self.windows.contains(where: { $0.id == id }) else { return }
                 if let index = self.windows.firstIndex(where: { $0.id == id }) {
                     self.windows[index].preview = image
                 }
@@ -317,17 +370,28 @@ final class SwitcherOverlayController {
     /// demand instead, debounced so holding the shortcut down does not queue a
     /// capture for every window it passes through.
     private func fillMissingPreview(at selection: Int) {
+        // A task for the previous selection is no longer useful even when this
+        // selection already has an image. Cancel before the early exits.
+        previewFill?.cancel()
+        previewFill = nil
         guard PermissionService.status.screenRecording,
               windows.indices.contains(selection),
               windows[selection].preview == nil else { return }
         let target = windows[selection]
         let settings = settings
-        previewFill?.cancel()
         previewFill = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 140_000_000)
-            guard !Task.isCancelled, let self, case .visible = self.state else { return }
-            await self.discovery.capturePreviews(for: [target], settings: settings) { [weak self] id, image in
-                guard let self, !Task.isCancelled, case .visible = self.state else { return }
+            guard !Task.isCancelled, let self, case .visible(let currentSelection) = self.state,
+                  self.windows.indices.contains(currentSelection),
+                  self.windows[currentSelection].id == target.id else { return }
+            await self.discovery.capturePreviews(
+                for: [target],
+                settings: settings,
+                maximumCount: 1
+            ) { [weak self] id, image in
+                guard let self, !Task.isCancelled, case .visible(let currentSelection) = self.state,
+                      self.windows.indices.contains(currentSelection),
+                      self.windows[currentSelection].id == id else { return }
                 if let index = self.windows.firstIndex(where: { $0.id == id }) {
                     self.windows[index].preview = image
                 }
@@ -346,6 +410,10 @@ final class SwitcherOverlayController {
         let outgoing = panels
         panels.removeAll()
         for panel in outgoing {
+            // State returns to idle before the fade is finished. The outgoing
+            // panel must not eat a click intended for the newly activated app
+            // or overlap a fresh Dock Peek with live hit targets.
+            panel.ignoresMouseEvents = true
             (panel.contentView as? SwitcherSurfaceView)?.animateMaterializeOut(reduceMotion: reduceMotion)
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = reduceMotion ? 0.1 : 0.16
@@ -364,6 +432,8 @@ final class SwitcherOverlayController {
         preparation?.cancel()
         previewFill?.cancel()
         previewFill = nil
+        previewRefresh?.cancel()
+        previewRefresh = nil
         closeVerificationTasks.values.forEach { $0.cancel() }
         closeVerificationTasks.removeAll()
         presentationRevision += 1

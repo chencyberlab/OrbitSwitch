@@ -103,6 +103,28 @@ final class DockHoverMachineTests: XCTestCase {
         XCTAssertEqual(machine.exitElapsed(), [.closePanel])
     }
 
+    /// A tracking-area exit can be missed when the pointer crosses quickly
+    /// from our non-key panel into another application's window. The next
+    /// global pointer signal must repair that stale state or no exit timer will
+    /// ever be armed and the panel will remain stranded.
+    func testGlobalPointerSignalRepairsAMissedPanelExit() {
+        var machine = showing()
+        _ = machine.pointerInsidePanelChanged(true)
+
+        XCTAssertEqual(machine.pointerLeftItems(), [.cancelDwell, .armExit(machine.exitGrace)])
+        XCTAssertFalse(machine.pointerInsidePanel)
+        XCTAssertEqual(machine.exitElapsed(), [.closePanel])
+    }
+
+    func testEnteringADockItemAlsoRepairsAMissedPanelExit() {
+        var machine = showing()
+        _ = machine.pointerInsidePanelChanged(true)
+
+        XCTAssertEqual(machine.pointerEnteredItem(chrome), [.cancelExit, .cancelDwell])
+        XCTAssertFalse(machine.pointerInsidePanel)
+        XCTAssertTrue(machine.isShowingPanel)
+    }
+
     func testLeavingTheIconsWithNoPanelUpArmsNothing() {
         var machine = DockHoverMachine()
         XCTAssertEqual(machine.pointerLeftItems(), [.cancelDwell])

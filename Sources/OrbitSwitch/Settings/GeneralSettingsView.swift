@@ -20,7 +20,7 @@ struct GeneralSettingsView: View {
                     .font(.callout)
                     .foregroundStyle(.red)
             }
-            LabeledContent("Updates", value: "Manual in version 1.0")
+            LabeledContent("Updates", value: "Manual")
             Button("Show Onboarding") {
                 settings.value.onboardingComplete = false
                 appState.showOnboarding()

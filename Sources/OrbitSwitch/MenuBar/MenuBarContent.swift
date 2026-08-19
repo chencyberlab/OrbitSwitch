@@ -12,7 +12,7 @@ struct MenuBarContent: View {
                 .keyboardShortcut(",")
             Divider()
             Label(
-                appState.permissionStatus.accessibility ? "Accessibility: Allowed" : "Accessibility: Required",
+                appState.permissionStatus.accessibility ? "Accessibility: Allowed" : "Accessibility: Limited",
                 systemImage: appState.permissionStatus.accessibility ? "checkmark.circle" : "exclamationmark.triangle"
             )
             Label(

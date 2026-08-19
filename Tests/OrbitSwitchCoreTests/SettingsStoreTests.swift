@@ -169,6 +169,29 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(decoded.backgroundBlur, 40)
     }
 
+    func testDecodingToleratesUnknownOrMalformedIndividualFields() throws {
+        var settings = AppSettings()
+        settings.stackAngle = -21
+        settings.showAppName = false
+        var payload = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any]
+        )
+        payload["theme"] = "future-theme"
+        payload["dockPeekTileWidth"] = "very wide"
+        payload["includeHiddenApps"] = ["not", "a", "boolean"]
+
+        let decoded = try JSONDecoder().decode(
+            AppSettings.self,
+            from: JSONSerialization.data(withJSONObject: payload)
+        )
+
+        XCTAssertEqual(decoded.theme, AppSettings().theme)
+        XCTAssertEqual(decoded.dockPeekTileWidth, AppSettings().dockPeekTileWidth)
+        XCTAssertEqual(decoded.includeHiddenApps, AppSettings().includeHiddenApps)
+        XCTAssertEqual(decoded.stackAngle, -21, "valid neighboring settings must survive")
+        XCTAssertFalse(decoded.showAppName, "valid neighboring settings must survive")
+    }
+
     func testDockPeekIsOffByDefault() {
         let settings = AppSettings()
         XCTAssertFalse(settings.dockPeekEnabled)
@@ -194,6 +217,41 @@ final class SettingsStoreTests: XCTestCase {
         let loaded = persistence.load()
         XCTAssertEqual(loaded.dockPeekHoverDelay, DockPeekLayout.hoverDelayRange.upperBound)
         XCTAssertEqual(loaded.dockPeekTileWidth, DockPeekLayout.tileWidthRange.upperBound)
+    }
+
+    func testPersistenceClampsEveryNumericSettingUsedByRenderingAndFiltering() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.perspectiveStrength = 99
+        settings.cardSpacing = -99
+        settings.animationDuration = 99
+        settings.backgroundBlur = -99
+        settings.minimumWindowWidth = 99_000
+        settings.minimumWindowHeight = -99
+        persistence.save(settings)
+
+        let loaded = persistence.load()
+        XCTAssertEqual(loaded.perspectiveStrength, AppSettings.perspectiveStrengthRange.upperBound)
+        XCTAssertEqual(loaded.cardSpacing, AppSettings.cardSpacingRange.lowerBound)
+        XCTAssertEqual(loaded.animationDuration, AppSettings.animationDurationRange.upperBound)
+        XCTAssertEqual(loaded.backgroundBlur, AppSettings.backgroundDimmingRange.lowerBound)
+        XCTAssertEqual(loaded.minimumWindowWidth, AppSettings.minimumWindowWidthRange.upperBound)
+        XCTAssertEqual(loaded.minimumWindowHeight, AppSettings.minimumWindowHeightRange.lowerBound)
+    }
+
+    func testPersistenceNormalizesExcludedBundleIdentifiers() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.excludedBundleIdentifiers = ["  com.example.one ", "", "com.example.two", "com.example.one"]
+        persistence.save(settings)
+
+        XCTAssertEqual(persistence.load().excludedBundleIdentifiers, ["com.example.one", "com.example.two"])
     }
 
     /// Settings saved before Dock Peek existed must load unchanged, with the
@@ -239,5 +297,21 @@ final class SettingsStoreTests: XCTestCase {
         let persistedData = try XCTUnwrap(defaults.data(forKey: "appSettings.v1"))
         let persisted = try JSONDecoder().decode(AppSettings.self, from: persistedData)
         XCTAssertNil(persisted.shortcuts[.showNext])
+    }
+
+    func testPersistenceRemovesShortcutsWithUnknownModifierBits() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        let unknown = ShortcutModifiers(rawValue: 1 << 12)
+        settings.shortcuts[.showNext] = ShortcutDefinition(keyCode: 0, modifiers: unknown)
+        settings.shortcuts[.dismiss] = ShortcutDefinition(keyCode: 53, modifiers: unknown)
+        persistence.save(settings)
+
+        let loaded = persistence.load()
+        XCTAssertNil(loaded.shortcuts[.showNext])
+        XCTAssertNil(loaded.shortcuts[.dismiss])
     }
 }

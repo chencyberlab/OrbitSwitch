@@ -147,4 +147,16 @@ final class WindowFilteringTests: XCTestCase {
         XCTAssertEqual(WindowFilter.filtered(windows, settings: settings, ownPID: 1).count, 1)
         XCTAssertEqual(WindowFilter.filtered(windows, settings: settings.dockPeekDiscovery, ownPID: 1).count, 2)
     }
+
+    func testCurrentApplicationModeNeverGroupsTheOnlyApplication() {
+        var settings = AppSettings()
+        settings.groupByApplication = true
+        let windows = [window(id: 1, title: "One"), window(id: 2, title: "Two")]
+
+        XCTAssertEqual(WindowFilter.filtered(windows, settings: settings, ownPID: 1).count, 1)
+        XCTAssertEqual(
+            WindowFilter.filtered(windows, settings: settings.currentApplicationDiscovery, ownPID: 1).count,
+            2
+        )
+    }
 }

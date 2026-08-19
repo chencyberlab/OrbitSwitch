@@ -134,9 +134,13 @@ class SwitcherSurfaceView: NSView {
     /// order the cards are stacked in.
     var hitTestOrder: [Int] { Array(cards.indices) }
 
-    /// A click that missed every card. The orbit stack ignores it; the sidebar
-    /// treats the uncovered desktop as "go away".
-    func handleBackgroundClick() {}
+    /// A click that missed every card. The orbit stack normally ignores it;
+    /// with no cards there is nothing else to click, so the empty overlay must
+    /// still offer a pointer path out. Sidebar overrides this to dismiss for
+    /// every background click.
+    func handleBackgroundClick() {
+        if windows.isEmpty { onCancel?() }
+    }
 
     func updateBackgroundDimming(_ percentage: Double) {
         let amount = min(0.85, max(0, percentage / 100))
@@ -275,6 +279,23 @@ class SwitcherSurfaceView: NSView {
     private func applyCardLayout(animated: Bool) {
         layoutCards(animated: animated)
         restackCards()
+        updateAccessibilityFrames()
+    }
+
+    /// Cards are placed with layer transforms, which AppKit's default
+    /// accessibility geometry does not follow. Publish each transformed
+    /// bounding box in screen coordinates so VoiceOver highlights the tile it
+    /// is actually reading instead of the shared untransformed base frame.
+    private func updateAccessibilityFrames() {
+        guard let window, let rootLayer = cardHost.layer else { return }
+        for card in cards {
+            guard let cardLayer = card.layer else { continue }
+            let hostRect = cardLayer.convert(cardLayer.bounds, to: rootLayer)
+            guard hostRect.origin.x.isFinite, hostRect.origin.y.isFinite,
+                  hostRect.width.isFinite, hostRect.height.isFinite else { continue }
+            let windowRect = cardHost.convert(hostRect, to: nil)
+            card.setAccessibilityFrame(window.convertToScreen(windowRect))
+        }
     }
 
     /// Card layers are siblings under one layer-backed view, and AppKit — not

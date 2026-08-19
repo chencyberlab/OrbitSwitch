@@ -34,6 +34,19 @@ final class PreviewCacheTests: XCTestCase {
         XCTAssertEqual(cache.image(for: 1)?.width, 16)
     }
 
+    func testRefreshingExistingIDMakesItMostRecentForEviction() {
+        let cache = PreviewCache(limit: 2)
+        cache.insert(makeImage(), for: 1)
+        cache.insert(makeImage(), for: 2)
+        cache.insert(makeImage(width: 16), for: 1)
+
+        cache.insert(makeImage(), for: 3)
+
+        XCTAssertNotNil(cache.image(for: 1), "the thumbnail just refreshed should survive")
+        XCTAssertNil(cache.image(for: 2), "the least-recent capture should be evicted")
+        XCTAssertNotNil(cache.image(for: 3))
+    }
+
     /// The invariant the overlay relies on for long uptimes: no matter how many
     /// distinct windows are seen across repeated sessions, the cache stays bounded.
     func testCountNeverExceedsLimitAcrossManyDistinctWindows() {

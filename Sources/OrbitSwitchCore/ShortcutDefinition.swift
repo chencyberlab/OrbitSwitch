@@ -12,6 +12,7 @@ public struct ShortcutModifiers: OptionSet, Codable, Hashable, Sendable {
     public static let control = Self(rawValue: 1 << 2)
     public static let shift = Self(rawValue: 1 << 3)
     public static let function = Self(rawValue: 1 << 4)
+    public static let supported: Self = [.command, .option, .control, .shift, .function]
 }
 
 public struct ShortcutDefinition: Codable, Hashable, Sendable {
@@ -23,7 +24,13 @@ public struct ShortcutDefinition: Codable, Hashable, Sendable {
         self.modifiers = modifiers
     }
 
-    public var isSuitableForGlobalRegistration: Bool { !modifiers.isEmpty }
+    public var hasOnlySupportedModifiers: Bool {
+        modifiers.rawValue & ~ShortcutModifiers.supported.rawValue == 0
+    }
+
+    public var isSuitableForGlobalRegistration: Bool {
+        !modifiers.isEmpty && hasOnlySupportedModifiers
+    }
 }
 
 public enum ShortcutAction: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -78,7 +85,15 @@ public enum ShortcutConflictDetector {
 public enum ShortcutHoldBehavior {
     public static func confirmationModifiers(for action: ShortcutAction, shortcut: ShortcutDefinition) -> ShortcutModifiers {
         var modifiers = shortcut.modifiers
-        if action == .previous { modifiers.remove(.shift) }
+        if action == .previous {
+            var withoutDirectionShift = modifiers
+            withoutDirectionShift.remove(.shift)
+            // Shift is normally just the direction modifier in
+            // Option-Shift-Tab, so releasing it must not confirm. If Shift is
+            // the whole custom chord, however, removing it would leave no
+            // anchor modifier and the switcher would never confirm on release.
+            if !withoutDirectionShift.isEmpty { modifiers = withoutDirectionShift }
+        }
         return modifiers
     }
 }

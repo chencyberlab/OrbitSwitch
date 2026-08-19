@@ -189,6 +189,36 @@ final class DockPeekLayoutTests: XCTestCase {
         XCTAssertEqual(metrics.indicatorReserve, DockPeekLayout.indicatorReserve)
     }
 
+    func testRemovingCardsDropsEmptyScrollRowsWithoutChangingPanelGeometry() {
+        let original = DockPeekLayout.metrics(
+            count: 100,
+            preferredTileWidth: 220,
+            available: CGSize(width: 1904, height: 950)
+        )
+        XCTAssertTrue(original.isScrollable)
+        XCTAssertEqual(
+            original.maximumScrollOffset(forWindowCount: 100),
+            original.maximumScrollOffset,
+            accuracy: 0.001
+        )
+
+        XCTAssertEqual(original.maximumScrollOffset(forWindowCount: original.capacity - 1), 0)
+        XCTAssertGreaterThan(original.maximumScrollOffset, 0)
+    }
+
+    func testRemovingSomeCardsKeepsOnlyTheDocumentRowsStillNeeded() {
+        let original = DockPeekLayout.metrics(
+            count: 100,
+            preferredTileWidth: 220,
+            available: CGSize(width: 1904, height: 950)
+        )
+        let remaining = original.capacity + 1
+        let reducedScrollRange = original.maximumScrollOffset(forWindowCount: remaining)
+
+        XCTAssertEqual(reducedScrollRange, original.tileHeight + original.spacing, accuracy: 0.001)
+        XCTAssertLessThan(reducedScrollRange, original.maximumScrollOffset)
+    }
+
     func testCardsFillLeftToRightAndTopRowFirst() {
         let metrics = DockPeekMetrics(
             tileWidth: 100,

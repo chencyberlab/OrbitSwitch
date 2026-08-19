@@ -2,6 +2,22 @@ import AppKit
 import ApplicationServices
 import OrbitSwitchCore
 
+/// NotificationCenter's block-observer token is not Sendable, while a main-
+/// actor object's deinitializer is nonisolated in Swift 6. Keeping the token in
+/// an explicitly thread-safe lifetime wrapper lets cleanup happen without
+/// reaching into actor-isolated state from `DockPeekController.deinit`.
+private final class NotificationObservation: @unchecked Sendable {
+    private let center: NotificationCenter
+    private let token: NSObjectProtocol
+
+    init(center: NotificationCenter, token: NSObjectProtocol) {
+        self.center = center
+        self.token = token
+    }
+
+    deinit { center.removeObserver(token) }
+}
+
 /// Owns the hover-a-Dock-icon flow end to end: listens for hovers, gathers that
 /// application's windows, puts the panel on screen, and services clicks on it.
 ///
@@ -20,8 +36,15 @@ final class DockPeekController {
     private var settings = AppSettings()
     private var hoveredItem: DockItem?
     private var preparation: Task<Void, Never>?
+    private var previewRefresh: Task<Void, Never>?
+    private var visiblePreviewFill: Task<Void, Never>?
+    private var pendingPreviewIDs = Set<CGWindowID>()
+    private var requestedPreviewIDs = Set<CGWindowID>()
+    private var inFlightPreviewIDs = Set<CGWindowID>()
+    private var refreshedPreviewIDs = Set<CGWindowID>()
+    private var previewGeneration = 0
     private var closeVerificationTasks: [CGWindowID: Task<Void, Never>] = [:]
-    private var terminationObserver: NSObjectProtocol?
+    private var terminationObservation: NotificationObservation?
     private var isSuppressed = false
 
     var isVisible: Bool { panel != nil }
@@ -34,12 +57,6 @@ final class DockPeekController {
         monitor.panelFrame = { [weak self] in self?.panel?.frame }
     }
 
-    deinit {
-        if let terminationObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(terminationObserver)
-        }
-    }
-
     /// Starts or stops the hover monitor to match the current settings and
     /// permission state. Safe to call repeatedly; it is the single place that
     /// decides whether the feature is live.
@@ -48,7 +65,7 @@ final class DockPeekController {
         monitor.hoverDelay = DockPeekLayout.clampedHoverDelay(settings.dockPeekHoverDelay)
         // Reading the Dock's window list is an Accessibility operation, so
         // without that permission there is nothing to hover-test against.
-        guard settings.dockPeekEnabled, AXIsProcessTrusted() else {
+        guard !isSuppressed, settings.dockPeekEnabled, AXIsProcessTrusted() else {
             stop()
             return
         }
@@ -66,7 +83,14 @@ final class DockPeekController {
     func setSuppressed(_ suppressed: Bool) {
         guard suppressed != isSuppressed else { return }
         isSuppressed = suppressed
-        if suppressed { dismiss() }
+        if suppressed {
+            // Do not merely hide the panel. A running monitor could otherwise
+            // continue advancing its hover machine behind the switcher and
+            // leave it believing a panel was open when suppression ends.
+            stop()
+        } else {
+            apply(settings: settings)
+        }
     }
 
     func screenParametersChanged() {
@@ -80,6 +104,9 @@ final class DockPeekController {
     func purgeVisiblePreviews() {
         preparation?.cancel()
         preparation = nil
+        previewRefresh?.cancel()
+        previewRefresh = nil
+        resetVisiblePreviewWork()
         view?.clearPreviews()
     }
 
@@ -96,35 +123,36 @@ final class DockPeekController {
         guard !isSuppressed, settings.dockPeekEnabled else { return }
         hoveredItem = item
         preparation?.cancel()
+        previewRefresh?.cancel()
+        previewRefresh = nil
+        resetVisiblePreviewWork()
         cancelCloseVerification()
 
         let peekSettings = settings.dockPeekDiscovery
 
-        let canCapture = PermissionService.status.screenRecording
         preparation = Task { [weak self] in
             guard let self else { return }
-            let discovered = await self.discovery.discover(settings: peekSettings)
+            let discovered = await self.discovery.discover(settings: peekSettings, ownerPID: item.processID)
             guard !Task.isCancelled, self.hoveredItem?.processID == item.processID else { return }
-            let windows = discovered.filter { $0.metadata.ownerPID == item.processID }
+            let windows = discovered
             guard !windows.isEmpty else {
                 // Nothing to show. The monitor keeps this icon as the current
                 // hover, so we do not re-query it on every pointer move.
                 self.hide()
                 return
             }
-            let presented = self.present(windows: windows, item: item)
-            guard canCapture, !Task.isCancelled, !presented.isEmpty else { return }
-            await self.discovery.capturePreviews(for: presented, settings: peekSettings) { [weak self] id, image in
-                guard let self, !Task.isCancelled, self.hoveredItem?.processID == item.processID else { return }
-                self.view?.updatePreview(id: id, image: image)
+            guard self.present(windows: windows, item: item) else {
+                self.hide()
+                return
             }
         }
     }
 
-    /// Returns the windows put on the panel, which is all of them: a list too
-    /// long for the panel scrolls rather than being cut.
+    /// Puts every discovered window on the panel: a list too long for the panel
+    /// scrolls rather than being cut. Returns false only when no screen exists
+    /// to host the panel.
     @discardableResult
-    private func present(windows: [SwitchableWindow], item: DockItem) -> [SwitchableWindow] {
+    private func present(windows: [SwitchableWindow], item: DockItem) -> Bool {
         // The card is shared with the switcher, so peek's own chrome choices are
         // handed to it as a settings copy rather than duplicating the card.
         var cardSettings = settings
@@ -136,7 +164,7 @@ final class DockPeekController {
         let screen = NSScreen.screens.first { $0.frame.intersects(item.frame) }
             ?? NSScreen.main
             ?? NSScreen.screens.first
-        guard let screen else { return [] }
+        guard let screen else { return false }
 
         let placement = DockPeekLayout.placement(
             count: windows.count,
@@ -148,13 +176,13 @@ final class DockPeekController {
         )
         let isNewPanel = panel == nil
         let view = view ?? makeView()
+        self.view = view
         view.configure(
             windows: windows,
             settings: cardSettings,
             metrics: placement.metrics,
             cardMetrics: cardMetrics
         )
-        self.view = view
 
         let panel = panel ?? DockPeekPanel(content: view)
         self.panel = panel
@@ -175,13 +203,14 @@ final class DockPeekController {
             panel.setFrame(placement.frame, display: true)
             panel.orderFrontRegardless()
         }
-        return windows
+        return true
     }
 
     private func makeView() -> DockPeekView {
         let view = DockPeekView(frame: .zero)
         view.onActivate = { [weak self] id in self?.activate(id) }
         view.onControlAction = { [weak self] action, id in self?.performControl(action, windowID: id) }
+        view.onVisibleWindowsChanged = { [weak self] in self?.visibleWindowsChanged() }
         view.onPointerInsideChanged = { [weak self] inside in
             self?.monitor.setPointerInsidePanel(inside)
         }
@@ -192,11 +221,18 @@ final class DockPeekController {
     private func hide() {
         preparation?.cancel()
         preparation = nil
+        previewRefresh?.cancel()
+        previewRefresh = nil
+        resetVisiblePreviewWork()
         hoveredItem = nil
         cancelCloseVerification()
         guard let panel else { return }
         self.panel = nil
         view = nil
+        // The outgoing view still exists for the fade. Stop it from delivering
+        // stale tracking/click events into a newly opened panel during that
+        // short overlap.
+        panel.ignoresMouseEvents = true
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = reduceMotion ? 0.06 : 0.12
@@ -222,6 +258,7 @@ final class DockPeekController {
         do { try activator.perform(action, on: window) }
         catch {
             Log.windows.error("Dock peek control action failed: \(error.localizedDescription, privacy: .public)")
+            NSSound.beep()
             return
         }
         switch action {
@@ -241,13 +278,28 @@ final class DockPeekController {
     private func verifyWindowClosed(_ windowID: CGWindowID) {
         closeVerificationTasks.removeValue(forKey: windowID)?.cancel()
         closeVerificationTasks[windowID] = Task { [weak self] in
-            for _ in 0..<10 {
+            for attempt in 0..<10 {
                 try? await Task.sleep(nanoseconds: 200_000_000)
                 guard !Task.isCancelled, let self, let view = self.view,
                       view.windows.contains(where: { $0.id == windowID }) else { return }
                 guard Self.windowStillExists(windowID) else {
+                    self.closeVerificationTasks.removeValue(forKey: windowID)
                     view.removeWindow(id: windowID)
                     if view.windows.isEmpty { self.dismiss() }
+                    return
+                }
+                if attempt == 2,
+                   let target = view.windows.first(where: { $0.id == windowID }) {
+                    // A close that still exists usually has a save sheet or
+                    // another decision waiting in the owning app. Reveal it
+                    // instead of leaving the user to hunt for the prompt.
+                    self.dismiss()
+                    do { try self.activator.activate(target) }
+                    catch {
+                        Log.windows.error(
+                            "Could not reveal a Dock Peek window awaiting close confirmation: \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
                     return
                 }
             }
@@ -263,14 +315,109 @@ final class DockPeekController {
 
     private func refreshPreviewSoon(for window: SwitchableWindow) {
         guard PermissionService.status.screenRecording else { return }
-        let settings = settings
-        Task { [weak self] in
+        // Keep the same all-Spaces scope used to discover the card. A user can
+        // zoom a window parked on another Desktop without activating it first;
+        // the switcher's raw Current Space setting must not make that refresh
+        // silently miss the target.
+        let settings = settings.dockPeekDiscovery
+        previewRefresh?.cancel()
+        previewRefresh = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard let self, self.view != nil else { return }
-            await self.discovery.capturePreviews(for: [window], settings: settings) { [weak self] id, image in
+            guard !Task.isCancelled, let self,
+                  self.view?.windows.contains(where: { $0.id == window.id }) == true else { return }
+            await self.discovery.capturePreviews(
+                for: [window],
+                settings: settings,
+                maximumCount: 1
+            ) { [weak self] id, image in
+                guard !Task.isCancelled,
+                      self?.view?.windows.contains(where: { $0.id == id }) == true else { return }
                 self?.view?.updatePreview(id: id, image: image)
             }
         }
+    }
+
+    // MARK: - Visible preview loading
+
+    /// Captures every card brought into the viewport, not just a fixed prefix
+    /// of a long application list. Requests are drained serially so a fast
+    /// scroll coalesces into the next batch rather than launching one complete
+    /// ScreenCaptureKit enumeration per wheel event.
+    private func visibleWindowsChanged() {
+        guard PermissionService.status.screenRecording,
+              let view, let hoveredItem else { return }
+        let visible = view.visibleWindows
+        let visibleIDs = Set(visible.map(\.id))
+        requestedPreviewIDs.formIntersection(visibleIDs.union(inFlightPreviewIDs))
+        for window in visible
+        where (window.preview == nil || !refreshedPreviewIDs.contains(window.id))
+            && !requestedPreviewIDs.contains(window.id) {
+            requestedPreviewIDs.insert(window.id)
+            pendingPreviewIDs.insert(window.id)
+        }
+        guard !pendingPreviewIDs.isEmpty, visiblePreviewFill == nil else { return }
+        let generation = previewGeneration
+        let processID = hoveredItem.processID
+        let discoverySettings = settings.dockPeekDiscovery
+        visiblePreviewFill = Task { [weak self] in
+            await self?.drainVisiblePreviewRequests(
+                generation: generation,
+                processID: processID,
+                settings: discoverySettings
+            )
+        }
+    }
+
+    private func drainVisiblePreviewRequests(
+        generation: Int,
+        processID: pid_t,
+        settings: AppSettings
+    ) async {
+        defer {
+            if previewGeneration == generation { visiblePreviewFill = nil }
+        }
+        while !Task.isCancelled, previewGeneration == generation,
+              hoveredItem?.processID == processID, let view {
+            let visibleIDs = Set(view.visibleWindows.map(\.id))
+            let batchIDs = pendingPreviewIDs.intersection(visibleIDs)
+            pendingPreviewIDs.subtract(batchIDs)
+            let stalePending = pendingPreviewIDs.subtracting(visibleIDs)
+            pendingPreviewIDs.subtract(stalePending)
+            requestedPreviewIDs.subtract(stalePending)
+            guard !batchIDs.isEmpty else {
+                if pendingPreviewIDs.isEmpty { return }
+                continue
+            }
+            inFlightPreviewIDs.formUnion(batchIDs)
+            let targets = view.windows.filter { batchIDs.contains($0.id) }
+            await discovery.capturePreviews(
+                for: targets,
+                settings: settings,
+                maximumCount: targets.count
+            ) { [weak self] id, image in
+                guard let self, !Task.isCancelled,
+                      self.previewGeneration == generation,
+                      self.hoveredItem?.processID == processID,
+                      self.view?.visibleWindows.contains(where: { $0.id == id }) == true else { return }
+                self.view?.updatePreview(id: id, image: image)
+            }
+            refreshedPreviewIDs.formUnion(batchIDs)
+            inFlightPreviewIDs.subtract(batchIDs)
+            guard previewGeneration == generation, let currentView = self.view else { return }
+            let stillVisible = Set(currentView.visibleWindows.map(\.id))
+            requestedPreviewIDs.subtract(batchIDs.subtracting(stillVisible))
+            if pendingPreviewIDs.isEmpty { return }
+        }
+    }
+
+    private func resetVisiblePreviewWork() {
+        previewGeneration &+= 1
+        visiblePreviewFill?.cancel()
+        visiblePreviewFill = nil
+        pendingPreviewIDs.removeAll()
+        requestedPreviewIDs.removeAll()
+        inFlightPreviewIDs.removeAll()
+        refreshedPreviewIDs.removeAll()
     }
 
     private func cancelCloseVerification() {
@@ -281,8 +428,9 @@ final class DockPeekController {
     /// A peeked application can quit while its panel is up — including because
     /// the last card was just closed from that panel.
     private func installTerminationObserver() {
-        guard terminationObserver == nil else { return }
-        terminationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+        guard terminationObservation == nil else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        let token = center.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: .main
@@ -294,5 +442,6 @@ final class DockPeekController {
                 self.dismiss()
             }
         }
+        terminationObservation = NotificationObservation(center: center, token: token)
     }
 }

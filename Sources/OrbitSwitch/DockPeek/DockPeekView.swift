@@ -17,6 +17,10 @@ import OrbitSwitchCore
 final class DockPeekView: NSView {
     var onActivate: ((CGWindowID) -> Void)?
     var onControlAction: ((WindowControlAction, CGWindowID) -> Void)?
+    /// Requests thumbnails for cards newly brought into the scroll viewport.
+    /// The controller owns capture and cancellation; the view only reports
+    /// that the visible set changed.
+    var onVisibleWindowsChanged: (() -> Void)?
     /// Reports the pointer crossing the panel's own boundary, which the global
     /// Dock monitor cannot see because these events belong to this app.
     var onPointerInsideChanged: ((Bool) -> Void)?
@@ -35,6 +39,7 @@ final class DockPeekView: NSView {
     private var hoveredIndex: Int?
     private var cardTrackingAreas: [NSTrackingArea] = []
     private var panelTrackingArea: NSTrackingArea?
+    private var lastReportedVisibleIDs: [CGWindowID] = []
 
     private static let cornerRadius: CGFloat = 16
     private static let indicatorHeight: CGFloat = 22
@@ -115,8 +120,18 @@ final class DockPeekView: NSView {
         self.metrics = metrics
         hoveredIndex = nil
         scrollOffset = 0
+        lastReportedVisibleIDs = []
         cards = windows.map { window in
-            let card = WindowCardView(window: window, settings: settings, metrics: cardMetrics)
+            let card = WindowCardView(
+                window: window,
+                settings: settings,
+                metrics: cardMetrics,
+                accessibilityHelp: "Activate this window.",
+                // Peek has no keyboard selection step: VoiceOver must be able
+                // to reach Close, Minimize, and Zoom directly on every visible
+                // card even though visual controls still wait for mouse hover.
+                exposesControlsToAccessibilityWhenUnselected: true
+            )
             card.onAccessibilityActivate = { [weak self] in self?.onActivate?(window.id) }
             card.onAccessibilityControlAction = { [weak self] action in
                 self?.onControlAction?(action, window.id)
@@ -125,7 +140,6 @@ final class DockPeekView: NSView {
             return card
         }
         setFrameSize(metrics.contentSize)
-        updateCountIndicator()
         layoutCards()
     }
 
@@ -140,15 +154,19 @@ final class DockPeekView: NSView {
     }
 
     /// Drops one confirmed-closed window's card in place. The panel keeps its
-    /// frame: resizing it under the pointer would move every remaining card out
-    /// from under the cursor mid-click.
+    /// frame and document geometry so it does not jump under the pointer, while
+    /// the live scroll range sheds rows it no longer needs.
     func removeWindow(id: CGWindowID) {
         guard let index = windows.firstIndex(where: { $0.id == id }), cards.indices.contains(index) else { return }
         cards.remove(at: index).removeFromSuperview()
         windows.remove(at: index)
         if let hoveredIndex, hoveredIndex >= index { self.hoveredIndex = nil }
-        updateCountIndicator()
+        scrollOffset = min(scrollOffset, currentMaximumScrollOffset)
         layoutCards()
+        // Removing a card can move another one under a stationary pointer.
+        if let point = window?.mouseLocationOutsideOfEventStream {
+            setHovered(cardIndex(at: convert(point, from: nil)))
+        }
     }
 
     /// Marks a card minimized without re-capturing it; the thumbnail on screen
@@ -159,10 +177,18 @@ final class DockPeekView: NSView {
     }
 
     private func updateCountIndicator() {
-        countIndicator.isHidden = !metrics.isScrollable
-        guard metrics.isScrollable else { return }
-        countLabel.stringValue = "\(windows.count) windows"
-        countIndicator.setAccessibilityLabel("\(windows.count) windows, scroll for more")
+        countIndicator.isHidden = !isCurrentlyScrollable
+        guard isCurrentlyScrollable else { return }
+        let visible = visibleCardIndices
+        if let first = visible.first, let last = visible.last {
+            countLabel.stringValue = "\(first + 1)–\(last + 1) of \(windows.count)"
+            countIndicator.setAccessibilityLabel(
+                "Windows \(first + 1) through \(last + 1) of \(windows.count), scroll for more"
+            )
+        } else {
+            countLabel.stringValue = "\(windows.count) windows"
+            countIndicator.setAccessibilityLabel("\(windows.count) windows, scroll for more")
+        }
     }
 
     /// Grid coordinates are the full document's; the panel shows a window onto
@@ -177,19 +203,65 @@ final class DockPeekView: NSView {
                 size: size
             )
             card.setSelected(index == hoveredIndex)
+            // Clipping hides off-viewport cards visually, but Accessibility
+            // needs the same visibility decision explicitly or VoiceOver can
+            // still enumerate cards the user cannot see.
+            card.setAccessibleVisibility(card.frame.intersects(bounds))
         }
+        discardPreviewsOutsideRetentionArea()
+        updateCountIndicator()
         updateTrackingAreas()
+        reportVisibleWindowsIfNeeded()
     }
 
     // MARK: - Scrolling
 
+    private var currentMaximumScrollOffset: CGFloat {
+        metrics.maximumScrollOffset(forWindowCount: windows.count)
+    }
+
+    private var isCurrentlyScrollable: Bool { currentMaximumScrollOffset > 0 }
+
+    /// The models corresponding to cards actually intersecting the panel.
+    /// DockPeekController uses this to progressively fill thumbnails as the
+    /// user scrolls instead of permanently leaving everything past an opening
+    /// prefix on fallback artwork.
+    var visibleWindows: [SwitchableWindow] {
+        visibleCardIndices.compactMap { windows.indices.contains($0) ? windows[$0] : nil }
+    }
+
+    private var visibleCardIndices: [Int] {
+        cards.indices.filter { cards[$0].frame.intersects(bounds) }
+    }
+
+    /// Keep one row of thumbnail overscan and release older session images as
+    /// they move farther away. A hundred-window app can therefore receive real
+    /// previews while scrolling without retaining a hundred decoded images.
+    private func discardPreviewsOutsideRetentionArea() {
+        guard isCurrentlyScrollable else { return }
+        let overscan = CGFloat(metrics.tileHeight + metrics.spacing)
+        let retentionArea = bounds.insetBy(dx: 0, dy: -overscan)
+        for index in cards.indices where !cards[index].frame.intersects(retentionArea) {
+            guard windows.indices.contains(index), windows[index].preview != nil else { continue }
+            windows[index].preview = nil
+            cards[index].updatePreview(nil)
+        }
+    }
+
+    private func reportVisibleWindowsIfNeeded() {
+        let visibleIDs = visibleWindows.map(\.id)
+        guard visibleIDs != lastReportedVisibleIDs else { return }
+        lastReportedVisibleIDs = visibleIDs
+        onVisibleWindowsChanged?()
+    }
+
     override func scrollWheel(with event: NSEvent) {
-        guard metrics.isScrollable else { return }
+        guard isCurrentlyScrollable else { return }
         let delta = event.hasPreciseScrollingDeltas
             ? event.scrollingDeltaY
             : event.scrollingDeltaY * Self.lineScrollDistance
         let proposed = scrollOffset - delta
-        let clamped = min(max(proposed, 0), metrics.maximumScrollOffset)
+        let clamped = min(max(proposed, 0), currentMaximumScrollOffset)
         guard clamped != scrollOffset else { return }
         scrollOffset = clamped
         layoutCards()

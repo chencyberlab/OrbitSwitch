@@ -24,7 +24,7 @@ struct AppearanceSettingsView: View {
                 Toggle("Show window title", isOn: settings.binding(\.showWindowTitle))
                 Toggle(isOn: settings.binding(\.showWindowControls)) {
                     Text("Show window controls")
-                    Text("Close, minimize, and zoom buttons on the front card.")
+                    Text("Close, minimize, and zoom buttons on the front card. These actions require Accessibility permission.")
                 }
                 Picker("App appearance", selection: settings.binding(\.theme)) {
                     ForEach(AppTheme.allCases) { theme in Text(theme.rawValue.capitalized).tag(theme) }
@@ -49,7 +49,12 @@ struct AppearanceSettingsView: View {
         Section("3D Stack") {
             integerSlider("Perspective strength", value: perspectivePercentage, range: 0...100, suffix: "%")
             integerSlider("Stack angle", value: settings.binding(\.stackAngle), range: Flip3DLayout.stackAngleRange, suffix: "°")
-            integerSlider("Card spacing", value: settings.binding(\.cardSpacing), range: 24...110, suffix: " pt")
+            integerSlider(
+                "Card spacing",
+                value: settings.binding(\.cardSpacing),
+                range: AppSettings.cardSpacingRange,
+                suffix: " pt"
+            )
             sharedControls
         }
     }
@@ -86,8 +91,18 @@ struct AppearanceSettingsView: View {
 
     @ViewBuilder
     private var sharedControls: some View {
-        decimalSlider("Animation duration", value: settings.binding(\.animationDuration), range: 0.1...0.65, suffix: " s")
-        integerSlider("Background dimming", value: settings.binding(\.backgroundBlur), range: 0...85, suffix: "%")
+        decimalSlider(
+            "Animation duration",
+            value: settings.binding(\.animationDuration),
+            range: AppSettings.animationDurationRange,
+            suffix: " s"
+        )
+        integerSlider(
+            "Background dimming",
+            value: settings.binding(\.backgroundBlur),
+            range: AppSettings.backgroundDimmingRange,
+            suffix: "%"
+        )
         Picker("Thumbnail quality", selection: settings.binding(\.thumbnailQuality)) {
             ForEach(ThumbnailQuality.allCases) { quality in Text(quality.rawValue.capitalized).tag(quality) }
         }
@@ -95,8 +110,8 @@ struct AppearanceSettingsView: View {
 
     private var perspectivePercentage: Binding<Double> {
         Binding(
-            get: { settings.value.perspectiveStrength / 0.002 * 100 },
-            set: { settings.value.perspectiveStrength = $0 / 100 * 0.002 }
+            get: { settings.value.perspectiveStrength / AppSettings.perspectiveStrengthRange.upperBound * 100 },
+            set: { settings.value.perspectiveStrength = $0 / 100 * AppSettings.perspectiveStrengthRange.upperBound }
         )
     }
 

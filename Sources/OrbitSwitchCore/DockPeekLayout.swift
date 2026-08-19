@@ -73,6 +73,18 @@ public struct DockPeekMetrics: Equatable, Sendable {
         max(0, documentSize.height - contentSize.height)
     }
 
+    /// The live scroll range after cards have been removed from a panel whose
+    /// frame and document geometry intentionally remain fixed. This prevents
+    /// scrolling into empty rows without resizing the whole panel during the
+    /// close click.
+    public func maximumScrollOffset(forWindowCount count: Int) -> Double {
+        let safeColumns = max(columns, 1)
+        let windowCount = max(count, 1)
+        let requiredRows = (windowCount - 1) / safeColumns + 1
+        let remainingRange = Double(max(0, requiredRows - visibleRows)) * (tileHeight + spacing)
+        return min(maximumScrollOffset, remainingRange)
+    }
+
     /// Origin of the card at `index` within the full grid, filling left to right
     /// and top row first — reading order. Relative to the grid's bottom-left
     /// corner, which is the panel's own when nothing scrolls.

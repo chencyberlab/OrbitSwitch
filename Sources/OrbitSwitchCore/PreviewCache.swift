@@ -2,9 +2,10 @@ import CoreGraphics
 import Foundation
 
 /// Bounded store of the most recently captured thumbnails, keyed by window ID.
-/// Eviction is insertion-order past the limit, which matches the count capture
-/// itself uses (16); entries for closed windows are never looked up again and
-/// simply age out. In-memory only: nothing is persisted. Not thread-safe —
+/// A refreshed window moves to the back of the recency order, so a thumbnail
+/// the user just selected or zoomed cannot be evicted as though it were still
+/// the oldest capture. Entries for closed windows simply age out. In-memory
+/// only: nothing is persisted. Not thread-safe —
 /// confine to a single actor (the app keeps it inside its discovery actor,
 /// which runs several capture passes concurrently).
 public final class PreviewCache {
@@ -23,7 +24,8 @@ public final class PreviewCache {
     public func image(for id: CGWindowID) -> CGImage? { images[id] }
 
     public func insert(_ image: CGImage, for id: CGWindowID) {
-        if images[id] == nil { insertionOrder.append(id) }
+        if images[id] != nil { insertionOrder.removeAll { $0 == id } }
+        insertionOrder.append(id)
         images[id] = image
         while insertionOrder.count > limit {
             images.removeValue(forKey: insertionOrder.removeFirst())

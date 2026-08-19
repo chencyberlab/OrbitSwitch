@@ -20,6 +20,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] With both permissions denied, cards show titles/icons, activation degrades safely, and no repeated system prompt appears.
 - [ ] Accessibility request and System Settings link open the correct pane.
 - [ ] Screen Recording request and System Settings link open the correct pane.
+- [ ] Onboarding offers both Request and Open Settings paths for each permission, including after a request was previously denied.
 - [ ] Permission status updates after returning from System Settings or restarting when macOS requires it.
 - [ ] After previews have been captured, revoking Screen Recording replaces visible and subsequently reopened previews with title/icon fallbacks.
 - [ ] Replacing an installed build with a newer build signed by the same certificate retains both permissions.
@@ -40,6 +41,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] If another utility claims a shortcut while OrbitSwitch is paused, Resume fails visibly and OrbitSwitch remains paused.
 - [ ] Test at least one non-US keyboard layout and a shortcut involving a punctuation key.
 - [ ] Fast repeated presses during overlay preparation select the expected card.
+- [ ] A Shift-only custom Previous shortcut confirms when Shift is released; Option-Shift-Tab still waits for Option rather than confirming when only Shift is released.
 
 ## Overlay and activation
 
@@ -51,18 +53,22 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Clicking a background card selects it; clicking the selected card confirms.
 - [ ] The selected card uses neutral elevation without an accent-colored outline.
 - [ ] Window controls fade in only while the pointer is over the selected card and disappear when it leaves.
+- [ ] A window-control failure gives immediate system feedback instead of silently doing nothing.
 - [ ] The bottom position capsule follows selection and wrapping, and stays hidden for zero or one window.
 - [ ] Empty, one-window, and thirty-plus-window sets remain usable.
+- [ ] Clicking the background dismisses an empty Orbit overlay instead of trapping pointer-only users.
 - [ ] With more than sixteen windows open, selecting one past the sixteenth still fills in a preview shortly after it is selected, in both styles.
-- [ ] Closing a selected window removes only its card after the window disappears; every surviving card remains visible immediately without another Tab press. Verify in both Orbit and Sidebar. An unsaved-document confirmation keeps the card present.
+- [ ] Repeated presses made before discovery finishes can land past the sixteenth window, and that initial selection still receives a preview.
+- [ ] Closing a selected window removes only its card after the window disappears; every surviving card remains visible immediately without another Tab press. Verify in both Orbit and Sidebar. An unresolved/unsaved close dismisses the switcher after a short check and brings the owning app's confirmation sheet forward instead of trapping it behind the overlay.
 - [ ] A minimized window restores when macOS exposes it through Accessibility.
 - [ ] With Include Minimized enabled, minimized windows appear; with it disabled, they do not.
 - [ ] With Accessibility enabled and Current Space Only selected, ordinary windows on another Space remain excluded.
 - [ ] Multiple browser and document windows retain approximate front-to-back order.
+- [ ] With Group windows by application enabled, the Current-app shortcut still shows every eligible window of the app that was frontmost when the shortcut was pressed.
 - [ ] Menu bar, Dock, desktop, tiny panels, and OrbitSwitch windows are absent.
 - [ ] Menu-bar-only utilities, agents, and background helpers never appear as switchable windows.
 - [ ] Include Hidden Apps and Ignore Transient Utility Panels each change filtering as labeled.
-- [ ] Multiple comma-separated excluded bundle identifiers can be typed and applied with Return.
+- [ ] Multiple comma-separated excluded bundle identifiers apply after a short typing pause, on Return, and when leaving the Windows tab; whitespace and duplicates are normalized.
 - [ ] Full-screen apps can show the auxiliary overlay and dismiss it cleanly.
 
 ## Sidebar style
@@ -80,6 +86,8 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] The position capsule stays with the strip for both few and many windows: past the end of a column, below a top row, above a bottom row.
 - [ ] Clicking a tile selects it, clicking the selected tile confirms, and clicking the desktop dismisses.
 - [ ] Window controls appear on hover over the selected tile and act on the right window.
+- [ ] Zooming a window that rejects direct AX geometry changes falls back without leaving it half-moved or half-resized.
+- [ ] A window spanning two displays zooms onto the display containing most of it, not whichever display happens to be enumerated first.
 - [ ] Scroll and arrow keys move the selection in both directions.
 - [ ] Empty, one-window, and thirty-plus-window sets remain usable.
 - [ ] Reduce Motion, Reduce Transparency, and Increase Contrast behave as they do in the Orbit style.
@@ -100,8 +108,8 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Hovering an app with no eligible windows opens nothing and does not repeatedly re-query while the pointer rests there.
 - [ ] Clicking a preview raises that exact window and closes the panel.
 - [ ] Hovering a preview reveals the close, minimize, and zoom buttons; each performs its action.
-- [ ] Closing a document window with unsaved changes leaves its card in place until the save sheet is resolved.
-- [ ] Zooming from a peek refreshes that card's thumbnail.
+- [ ] Closing a document window with unsaved changes dismisses the peek after a short check and brings the owning app's save sheet forward.
+- [ ] Zooming from a peek refreshes that card's thumbnail, including for a window on another Desktop when Current Space only is enabled for the switcher.
 - [ ] Closing the last window of an app closes the panel rather than leaving it empty.
 - [ ] Quitting the peeked application while its panel is open closes the panel.
 - [ ] Moving diagonally from the icon into the panel does not close it; moving away entirely does.
@@ -110,6 +118,7 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] After such a click, hovering the same icon again reopens the panel normally.
 - [ ] The panel never becomes key: text being typed in another app keeps its insertion point throughout.
 - [ ] Opening the Tab switcher while a peek is up closes the peek, and peek stays suppressed until the switcher is dismissed.
+- [ ] While the Tab switcher is open, moving across Dock icons does not prime a hidden peek; after dismissing the switcher, the next hover waits normally and opens the correct app.
 - [ ] Hover delay and preview width take effect on the next hover without relaunching.
 - [ ] Turning Show window controls off hides the buttons.
 - [ ] The Dock Peek label toggles apply to peek only and leave the switcher's Appearance labels untouched, and vice versa.
@@ -123,9 +132,13 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] With enough windows to overflow (30+), the panel stops growing at three rows and four fifths of the screen instead of filling the display.
 - [ ] That panel scrolls by trackpad and by mouse wheel, reaches the last window, and stops cleanly at both ends.
 - [ ] The window count appears in the corner while scrollable, is clear of every card's title, and is absent when nothing scrolls.
+- [ ] The scroll indicator updates its visible range (for example, “34–66 of 100”) as the grid moves.
+- [ ] Close enough cards from a scrolling panel that all remaining cards fit; the count disappears and the wheel cannot scroll into now-empty rows, while the panel itself does not jump under the pointer.
 - [ ] Hovering after scrolling highlights the card actually under the pointer, and a scrolled-away card never reports hover.
+- [ ] Accessibility inspection exposes only cards currently inside the scrolling viewport, never clipped rows above or below it.
 - [ ] Clicking a card after scrolling raises that card's window, not the one that was originally in its place.
 - [ ] Counted against the app's real window count, every window is reachable by scrolling — none are missing.
+- [ ] With Screen Recording allowed, newly visible rows receive thumbnails progressively; scrolling through a hundred windows does not retain decoded previews for every off-screen row.
 - [ ] Reduce Transparency replaces the panel's vibrancy with a solid surface; Increase Contrast strengthens its border.
 - [ ] Sweeping the pointer across the whole screen with peek enabled shows no measurable CPU cost; disabling the setting removes the monitor entirely.
 
@@ -143,7 +156,9 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] VoiceOver reads each card as app name followed by window title.
 - [ ] VoiceOver announces each selection change as the switcher is cycled, once per change with All Displays enabled.
 - [ ] VoiceOver can press a card and invoke Close, Minimize, and Zoom as custom actions on the selected card.
+- [ ] In Dock Peek, VoiceOver can invoke Close, Minimize, and Zoom on every visible card without requiring a mouse-hover selection first.
 - [ ] VoiceOver does not focus cards hidden beyond the Orbit depth limit or outside the Sidebar viewport.
+- [ ] VoiceOver's highlight follows the transformed on-screen position of Orbit and Sidebar cards rather than their shared base frame.
 - [ ] The empty-state message is legible in Light, Dark, and System themes.
 - [ ] Reduce Motion removes the perspective movement and uses a short transition.
 - [ ] Increase Contrast keeps selection borders and labels legible.

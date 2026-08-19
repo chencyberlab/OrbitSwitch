@@ -33,8 +33,17 @@ final class ShortcutConflictTests: XCTestCase {
         XCTAssertEqual(ShortcutHoldBehavior.confirmationModifiers(for: .previous, shortcut: reverse), [.option])
     }
 
+    func testShiftOnlyPreviousShortcutStillHasAConfirmationModifier() {
+        let reverse = ShortcutDefinition(keyCode: 48, modifiers: [.shift])
+        XCTAssertEqual(ShortcutHoldBehavior.confirmationModifiers(for: .previous, shortcut: reverse), [.shift])
+    }
+
     func testGlobalRegistrationRequiresModifier() {
         XCTAssertFalse(ShortcutDefinition(keyCode: 0, modifiers: []).isSuitableForGlobalRegistration)
         XCTAssertTrue(ShortcutDefinition(keyCode: 0, modifiers: [.option]).isSuitableForGlobalRegistration)
+        XCTAssertFalse(
+            ShortcutDefinition(keyCode: 0, modifiers: .init(rawValue: 1 << 12)).isSuitableForGlobalRegistration,
+            "an unknown persisted bit must not turn into an unmodified Carbon hotkey"
+        )
     }
 }

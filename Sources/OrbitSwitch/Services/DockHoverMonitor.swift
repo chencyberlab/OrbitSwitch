@@ -80,6 +80,7 @@ final class DockHoverMonitor {
     func reset() {
         apply(machine.forget())
         itemsByPID.removeAll()
+        lastQueryTime = 0
     }
 
     // MARK: - Effects

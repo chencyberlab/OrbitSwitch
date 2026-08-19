@@ -48,6 +48,10 @@ public struct DockHoverMachine: Equatable, Sendable {
 
     /// The pointer is over `pid`'s Dock icon.
     public mutating func pointerEnteredItem(_ pid: pid_t) -> [DockHoverEffect] {
+        // Dock item signals come from the global event monitor, so receiving one
+        // is also proof that the pointer is no longer inside our panel. Repair
+        // the flag here in case AppKit missed the panel's mouse-exit event.
+        pointerInsidePanel = false
         guard pid != shown else {
             // Back on the icon whose panel is already up.
             pending = nil
@@ -59,8 +63,10 @@ public struct DockHoverMachine: Equatable, Sendable {
     }
 
     /// The pointer is over the Dock band but not over any application icon, or
-    /// has left the band entirely.
+    /// has left the band entirely. Like `pointerEnteredItem`, this is fed by the
+    /// global monitor and therefore proves the pointer is outside our panel.
     public mutating func pointerLeftItems() -> [DockHoverEffect] {
+        pointerInsidePanel = false
         pending = nil
         return [.cancelDwell] + exitEffects()
     }
