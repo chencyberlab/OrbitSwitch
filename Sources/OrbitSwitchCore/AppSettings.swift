@@ -92,6 +92,21 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var includeUntitled = true
     public var ignoreUtilityPanels = true
 
+    /// Hovering a Dock icon shows that application's windows as a row of cards.
+    /// Off by default: it needs Accessibility permission and a global mouse
+    /// monitor, neither of which should start without the user asking.
+    public var dockPeekEnabled = false
+    public var dockPeekHoverDelay = 0.25
+    public var dockPeekTileWidth = 220.0
+    public var dockPeekShowControls = true
+    /// Peek carries its own label switches rather than borrowing the switcher's.
+    /// A peek card wants different labels: the application name is redundant on
+    /// a panel you opened by pointing at that application's icon, while the
+    /// window title is the whole reason you are looking.
+    public var dockPeekShowAppIcon = true
+    public var dockPeekShowAppName = false
+    public var dockPeekShowWindowTitle = true
+
     public var displayMode = DisplayMode.pointer
     public var rememberDisplayPreference = true
     public var onboardingComplete = false
@@ -134,6 +149,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
         groupByApplication = try container.decodeIfPresent(Bool.self, forKey: .groupByApplication) ?? defaults.groupByApplication
         includeUntitled = try container.decodeIfPresent(Bool.self, forKey: .includeUntitled) ?? defaults.includeUntitled
         ignoreUtilityPanels = try container.decodeIfPresent(Bool.self, forKey: .ignoreUtilityPanels) ?? defaults.ignoreUtilityPanels
+        dockPeekEnabled = try container.decodeIfPresent(Bool.self, forKey: .dockPeekEnabled) ?? defaults.dockPeekEnabled
+        dockPeekHoverDelay = try container.decodeIfPresent(Double.self, forKey: .dockPeekHoverDelay) ?? defaults.dockPeekHoverDelay
+        dockPeekTileWidth = try container.decodeIfPresent(Double.self, forKey: .dockPeekTileWidth) ?? defaults.dockPeekTileWidth
+        dockPeekShowControls = try container.decodeIfPresent(Bool.self, forKey: .dockPeekShowControls) ?? defaults.dockPeekShowControls
+        dockPeekShowAppIcon = try container.decodeIfPresent(Bool.self, forKey: .dockPeekShowAppIcon) ?? defaults.dockPeekShowAppIcon
+        dockPeekShowAppName = try container.decodeIfPresent(Bool.self, forKey: .dockPeekShowAppName) ?? defaults.dockPeekShowAppName
+        dockPeekShowWindowTitle = try container.decodeIfPresent(Bool.self, forKey: .dockPeekShowWindowTitle) ?? defaults.dockPeekShowWindowTitle
         displayMode = try container.decodeIfPresent(DisplayMode.self, forKey: .displayMode) ?? defaults.displayMode
         rememberDisplayPreference = try container.decodeIfPresent(Bool.self, forKey: .rememberDisplayPreference) ?? defaults.rememberDisplayPreference
         onboardingComplete = try container.decodeIfPresent(Bool.self, forKey: .onboardingComplete) ?? defaults.onboardingComplete
@@ -146,6 +168,34 @@ public struct AppSettings: Codable, Equatable, Sendable {
         .appOnly: .init(keyCode: 3, modifiers: [.option]),
         .currentApp: .init(keyCode: 50, modifiers: [.option])
     ]
+}
+
+public extension AppSettings {
+    /// The window filter Dock Peek discovers with, derived from the user's own
+    /// settings.
+    ///
+    /// Three of them are deliberately overridden, because hovering an
+    /// application's Dock icon asks a different question than the switcher does.
+    /// The switcher asks "what can I switch to right now"; a Dock peek asks
+    /// "what does this application have open", and the answer has to include the
+    /// window minimized into the Dock, the one parked on another Desktop, and
+    /// the one belonging to a hidden application — those are exactly the windows
+    /// that are hardest to get back to by any other means, so leaving them out
+    /// would gut the feature.
+    ///
+    /// Everything else is left alone. Minimum window size and the excluded
+    /// bundle list are the user saying "this is not a window I want to see", and
+    /// that answer does not change with how they went looking.
+    var dockPeekDiscovery: AppSettings {
+        var settings = self
+        settings.currentSpaceOnly = false
+        settings.includeMinimized = true
+        settings.includeHiddenApps = true
+        // Peek is already scoped to one application, so collapsing to one window
+        // per application would leave exactly one card.
+        settings.groupByApplication = false
+        return settings
+    }
 }
 
 public final class SettingsPersistence {
@@ -216,6 +266,16 @@ public final class SettingsPersistence {
         let stackAngle = Flip3DLayout.clampedStackAngle(settings.stackAngle)
         if stackAngle != settings.stackAngle {
             settings.stackAngle = stackAngle
+            changed = true
+        }
+        let hoverDelay = DockPeekLayout.clampedHoverDelay(settings.dockPeekHoverDelay)
+        if hoverDelay != settings.dockPeekHoverDelay {
+            settings.dockPeekHoverDelay = hoverDelay
+            changed = true
+        }
+        let peekTileWidth = DockPeekLayout.clampedTileWidth(settings.dockPeekTileWidth)
+        if peekTileWidth != settings.dockPeekTileWidth {
+            settings.dockPeekTileWidth = peekTileWidth
             changed = true
         }
         return changed

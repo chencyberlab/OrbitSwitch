@@ -151,7 +151,14 @@ final class WindowCardView: NSView {
             appLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -(metrics.footerHeight / 2 + 1)),
             titleLabel.leadingAnchor.constraint(equalTo: appLabel.leadingAnchor),
             titleLabel.trailingAnchor.constraint(equalTo: appLabel.trailingAnchor),
-            titleLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 1)
+            // A hidden view still participates in layout, so the title would
+            // otherwise keep hanging below an invisible app label and sit low in
+            // the footer. With no app name above it, the title is the label row
+            // and gets centered on it. Dock Peek hides the app name by default,
+            // where it is redundant.
+            settings.showAppName
+                ? titleLabel.topAnchor.constraint(equalTo: appLabel.bottomAnchor, constant: 1)
+                : titleLabel.centerYAnchor.constraint(equalTo: iconView.centerYAnchor)
         ])
         if controlsEnabled { installControls() }
         setAccessibilityElement(true)

@@ -13,7 +13,17 @@ final class SwitcherOverlayController {
         case idle, preparing, visible(selection: Int), activating, dismissing
     }
 
-    private(set) var state = State.idle
+    /// Reported on every real state change. Dock Peek uses it to stay out of
+    /// the way while the switcher is up; nothing else in the overlay depends on
+    /// it, so an unset handler costs nothing.
+    var onStateChange: ((State) -> Void)?
+
+    private(set) var state = State.idle {
+        didSet {
+            guard state != oldValue else { return }
+            onStateChange?(state)
+        }
+    }
     private let discovery: WindowDiscovering
     private let activator: WindowActivating
     private var panels: [SwitcherOverlayWindow] = []

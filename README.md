@@ -83,10 +83,27 @@ The default forward shortcut is Option-Tab and the reverse shortcut is Option-Sh
 
 Tab keeps cycling through every window in both styles. In Sidebar, when more windows are open than tiles fit, the strip scrolls to keep the selection in view and the tiles at each end fade to show that the list continues. When the display is short for a column or narrow for a row, OrbitSwitch narrows the tiles to honor the requested count, and shows fewer tiles only when they would otherwise become unreadably small.
 
+## Dock peek
+
+**Settings → Dock Peek** turns on an optional, mouse-first way into the same window list. Rest the pointer on a running application's icon in the Dock and OrbitSwitch shows every window that application has, side by side, as a row of previews. Click one to bring that exact window forward. Hovering a preview reveals the same close, minimize, and zoom buttons the switcher uses.
+
+It is off by default, and it needs **Accessibility** permission: OrbitSwitch asks the Dock which icon the pointer is over, which macOS allows only with that permission. Screen Recording is optional here as it is elsewhere — without it the previews are the usual title and icon cards.
+
+- The **hover delay** sets how long the pointer must rest before the panel opens; moving along the Dock while a panel is already open switches to the next application faster than the first open.
+- The **preview size** sets how large each card is. A long window list narrows the cards to keep them on one row, and wraps into an evenly balanced grid only once they would become unreadable; the cards then widen again to use the room the shorter rows freed.
+- However many windows an application has, the panel stays a peek: it never spans more than four fifths of the room beside the Dock, and never grows past three rows. A list longer than that **scrolls** — trackpad or wheel, with the total shown in the corner — so hovering an app with a hundred windows gives a readable grid you scroll, not a screen-filling wall, and no window is ever left out of it.
+- The **labels** — app icon, app name, window title, and window controls — are configured for Dock peek separately from the switcher's own labels under Appearance. Dock peek shows the window title and hides the app name by default, because the app name is redundant on a panel opened by pointing at that app's icon. Turning every label off gives the space back to the preview image.
+- Leaving both the icon and the panel closes it, with a short grace period so a diagonal move from the icon to the panel does not drop it. Clicking anywhere else closes it immediately.
+- Dock peek shows **every** window of the hovered application, including ones **minimized into the Dock**, ones parked on **another Desktop**, and ones belonging to a **hidden** application. Those are the windows hardest to reach any other way, so Current Space only, Include minimized, and Include hidden apps are all overridden here regardless of how they are set for the switcher. Clicking a minimized window's preview un-minimizes and raises it.
+- The minimum window size and excluded bundle identifiers under **Settings → Windows** still apply, because those are you saying a window is not one you want to see, and that does not change with how you went looking for it.
+- The panel is a non-activating panel and never becomes the key window, so it cannot take focus from whatever you were typing in. It is mouse-driven only.
+- Only the Tab switcher or a Dock peek is on screen at a time; opening the switcher closes any peek.
+
 ## Privacy and security
 
 - Window titles and thumbnails are processed locally and never transmitted.
 - Thumbnails are held in memory only. Session card references are discarded when the overlay closes; a bounded sixteen-image cache accelerates the next invocation and is purged immediately if Screen Recording is revoked, the session locks, or displays sleep.
+- Dock peek uses the same discovery and capture path, the same in-memory cache, and the same purge boundaries as the switcher; hovering a Dock icon writes nothing to disk and transmits nothing.
 - The app has no analytics, networking, or update telemetry.
 - No captured image is written to disk.
 - Only Apple frameworks are used, all public: AppKit, Core Graphics, ScreenCaptureKit, Accessibility, Carbon HIToolbox, SwiftUI, and ServiceManagement. One undocumented Accessibility symbol, `_AXUIElementGetWindow`, is used to match a window element to its window ID because no public equivalent exists; it is confined to `AccessibilityWindowController` and falls back to title matching. See [Architecture.md](Documentation/Architecture.md).
@@ -99,7 +116,7 @@ Tab keeps cycling through every window in both styles. In Sidebar, when more win
 
 - Protected video and DRM content may return no preview; OrbitSwitch shows its normal fallback card.
 - Static thumbnails refresh progressively when the switcher opens rather than streaming continuously; protected or unavailable windows retain their title/icon fallback. Beyond the first sixteen windows a preview is captured when that window is selected, so it appears a moment after the selection lands.
-- Minimized windows are included by default and can be disabled under **Settings → Windows**. Accessibility permission lets OrbitSwitch positively identify them; without it, unknown off-screen windows are excluded to avoid listing background utilities and menu-bar-only apps.
+- Minimized windows are included by default and can be disabled under **Settings → Windows**. They are matched to their Accessibility state by window ID; before that they were matched by title, which silently dropped every minimized window of an application whose two titles differ for the same window, Chrome among them. Accessibility permission lets OrbitSwitch positively identify them; without it, unknown off-screen windows are excluded to avoid listing background utilities and menu-bar-only apps.
 - ScreenCaptureKit may not provide snapshots for minimized windows, so those entries can use title/icon fallback cards until restored.
 - Accessibility identifies a target window by its public title attribute. Untitled or identically titled windows can fall back to application activation.
 - macOS and third-party utilities can reserve a global shortcut. OrbitSwitch reports registration failures and preserves the last working shortcut.
@@ -107,5 +124,10 @@ Tab keeps cycling through every window in both styles. In Sidebar, when more win
 - In the Sidebar style, clicking the uncovered desktop dismisses the switcher, because most of the screen is not part of the strip.
 - Background Dimming is a percentage-based translucent overlay. OrbitSwitch intentionally avoids a live system blur because full-screen blur redraws caused visible flicker during navigation.
 - Launch at Login registration can be unavailable for an ad-hoc development bundle and should be validated in a Developer ID signed release.
+- Dock peek requires Accessibility permission and does nothing without it; the setting explains this rather than failing silently. It reads only the Dock's public Accessibility attributes and identifies an icon by the application bundle URL it carries.
+- Dock peek covers application icons only. Trash, stacks, folders, and the minimized-window items on the far side of the Dock are ignored, as is an icon whose application is not running or has no eligible windows.
+- Beyond the first sixteen windows of an application, a peek card keeps its title/icon fallback, because the bounded capture prefix is shared with the switcher. Scrolling further into a long list does not capture more.
+- A minimized window usually cannot be captured by ScreenCaptureKit, so its card shows the thumbnail from before it was minimized if one is still cached, and the title/icon fallback otherwise.
+- Identifying a minimized window relies on mapping its Accessibility element to its Core Graphics window ID. In the rare case that mapping fails, OrbitSwitch falls back to comparing titles, and a window it still cannot identify is left off rather than risking a background helper surface being listed as a window. The same rule governs the switcher.
 
 See [Architecture.md](Documentation/Architecture.md) and [Manual-QA.md](Documentation/Manual-QA.md) for implementation and test details.

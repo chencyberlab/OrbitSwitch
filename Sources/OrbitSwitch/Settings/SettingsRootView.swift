@@ -8,6 +8,7 @@ struct SettingsRootView: View {
             AppearanceSettingsView().tabItem { Label("Appearance", systemImage: "paintbrush") }
             FilteringSettingsView().tabItem { Label("Windows", systemImage: "macwindow.on.rectangle") }
             DisplaySettingsView().tabItem { Label("Displays", systemImage: "display.2") }
+            DockPeekSettingsView().tabItem { Label("Dock Peek", systemImage: "dock.rectangle") }
             PermissionsSettingsView().tabItem { Label("Permissions", systemImage: "hand.raised") }
         }
         .frame(width: 720, height: 540)

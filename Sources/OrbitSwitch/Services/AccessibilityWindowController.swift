@@ -1,13 +1,6 @@
 import AppKit
 import ApplicationServices
 
-/// Private-but-stable API (used by AltTab, yabai, Amethyst) that maps an
-/// AXUIElement window to its CGWindowID. Title matching alone is unreliable:
-/// Chrome, for example, appends " - Google Chrome – <profile>" to its AX
-/// window titles but not to its CGWindowList titles.
-@_silgen_name("_AXUIElementGetWindow")
-private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
-
 enum WindowActivationError: LocalizedError {
     case applicationUnavailable
     case accessibilityUnavailable
@@ -69,13 +62,8 @@ final class AccessibilityWindowController: WindowActivating {
         guard let primaryMaxY = screens.first?.frame.maxY else {
             throw WindowActivationError.actionUnavailable
         }
-        let screen = axFrame(of: windowElement).flatMap { frame -> NSScreen? in
-            let cocoaFrame = CGRect(
-                x: frame.origin.x,
-                y: primaryMaxY - frame.origin.y - frame.height,
-                width: frame.width,
-                height: frame.height
-            )
+        let screen = AXGeometry.axFrame(of: windowElement).flatMap { frame -> NSScreen? in
+            let cocoaFrame = AXGeometry.cocoaRect(fromAX: frame, primaryMaxY: primaryMaxY)
             return screens.first { $0.frame.intersects(cocoaFrame) }
         } ?? NSScreen.main ?? screens[0]
 
@@ -93,21 +81,6 @@ final class AccessibilityWindowController: WindowActivating {
         }
     }
 
-    /// Window frame in AX coordinates (top-left origin, primary-screen based).
-    private func axFrame(of windowElement: AXUIElement) -> CGRect? {
-        var positionValue: CFTypeRef?
-        var sizeValue: CFTypeRef?
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionValue) == .success,
-              AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeValue) == .success,
-              let positionValue, CFGetTypeID(positionValue) == AXValueGetTypeID(),
-              let sizeValue, CFGetTypeID(sizeValue) == AXValueGetTypeID(),
-              AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
-        return CGRect(origin: position, size: size)
-    }
-
     private func resolveWindowElement(for window: SwitchableWindow) throws -> AXUIElement {
         guard NSRunningApplication(processIdentifier: window.metadata.ownerPID) != nil else {
             throw WindowActivationError.applicationUnavailable
@@ -119,10 +92,7 @@ final class AccessibilityWindowController: WindowActivating {
         guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
               let windows = value as? [AXUIElement] else { throw WindowActivationError.windowUnavailable }
 
-        if let match = windows.first(where: { element in
-            var windowID: CGWindowID = 0
-            return _AXUIElementGetWindow(element, &windowID) == .success && windowID == window.id
-        }) {
+        if let match = windows.first(where: { AXWindowBridge.windowID(of: $0) == window.id }) {
             return match
         }
 

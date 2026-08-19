@@ -88,4 +88,63 @@ final class WindowFilteringTests: XCTestCase {
         settings.ignoreUtilityPanels = false
         XCTAssertTrue(WindowFilter.isEligible(utilityPanel, settings: settings, ownPID: 10))
     }
+
+    // MARK: - Dock peek
+
+    /// The question a Dock peek answers is "what does this application have
+    /// open", so a window minimized into the Dock has to be in the answer — it
+    /// is one of the windows hardest to reach any other way.
+    func testDockPeekShowsMinimizedWindowsEvenWhenTheSwitcherIsSetNotTo() {
+        var settings = AppSettings()
+        settings.includeMinimized = false
+        let minimized = window(title: "Minimized", onScreen: false, minimized: true)
+
+        XCTAssertFalse(WindowFilter.isEligible(minimized, settings: settings, ownPID: 1))
+        XCTAssertTrue(WindowFilter.isEligible(minimized, settings: settings.dockPeekDiscovery, ownPID: 1))
+    }
+
+    /// Same for a window on another Desktop and one belonging to a hidden
+    /// application, which the switcher's defaults also leave out.
+    func testDockPeekShowsOffSpaceAndHiddenApplicationWindows() {
+        let settings = AppSettings()
+        let otherSpace = window(title: "Other Desktop", onScreen: false, minimized: false)
+        let hidden = window(title: "Hidden App", onScreen: false, minimized: false, hiddenApp: true)
+
+        XCTAssertFalse(WindowFilter.isEligible(otherSpace, settings: settings, ownPID: 1))
+        XCTAssertFalse(WindowFilter.isEligible(hidden, settings: settings, ownPID: 1))
+        XCTAssertTrue(WindowFilter.isEligible(otherSpace, settings: settings.dockPeekDiscovery, ownPID: 1))
+        XCTAssertTrue(WindowFilter.isEligible(hidden, settings: settings.dockPeekDiscovery, ownPID: 1))
+    }
+
+    /// A minimized window that Accessibility could not positively identify stays
+    /// out. An unknown off-screen window is as likely to be a background utility
+    /// surface as a real one, and guessing wrong puts junk on the panel.
+    func testDockPeekStillExcludesOffScreenWindowsItCannotIdentify() {
+        let unknown = window(title: "Unknown", onScreen: false, minimized: nil)
+        XCTAssertFalse(WindowFilter.isEligible(unknown, settings: AppSettings().dockPeekDiscovery, ownPID: 1))
+    }
+
+    /// The filters that say "this is not a window I want to see" are the user's,
+    /// and they hold however the user went looking.
+    func testDockPeekKeepsTheUsersOwnSizeAndExclusionFilters() {
+        var settings = AppSettings()
+        settings.excludedBundleIdentifiers = ["com.example.app"]
+        settings.minimumWindowWidth = 400
+        let excluded = window(title: "Excluded")
+        let tiny = window(bundleID: "com.example.other", title: "Tiny", width: 120)
+
+        XCTAssertFalse(WindowFilter.isEligible(excluded, settings: settings.dockPeekDiscovery, ownPID: 1))
+        XCTAssertFalse(WindowFilter.isEligible(tiny, settings: settings.dockPeekDiscovery, ownPID: 1))
+    }
+
+    /// Peek is already scoped to one application, so grouping would collapse the
+    /// whole panel to a single card.
+    func testDockPeekNeverGroupsByApplication() {
+        var settings = AppSettings()
+        settings.groupByApplication = true
+        let windows = [window(id: 1, title: "One"), window(id: 2, title: "Two")]
+
+        XCTAssertEqual(WindowFilter.filtered(windows, settings: settings, ownPID: 1).count, 1)
+        XCTAssertEqual(WindowFilter.filtered(windows, settings: settings.dockPeekDiscovery, ownPID: 1).count, 2)
+    }
 }

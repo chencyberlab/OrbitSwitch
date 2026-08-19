@@ -17,7 +17,11 @@ final class AppState: ObservableObject {
     @Published private(set) var launchAtLoginStatus = AppState.currentLaunchAtLoginStatus()
     @Published private(set) var launchAtLoginError: String?
 
-    private let overlay = SwitcherOverlayController()
+    /// One discovery actor and one activator for the whole app. Sharing them
+    /// means the switcher and Dock Peek draw from a single bounded thumbnail
+    /// cache with a single purge path, rather than two of each.
+    private let overlay: SwitcherOverlayController
+    private let dockPeek: DockPeekController
     private var shortcutManager: GlobalShortcutManager?
     private var started = false
     private var appliedSettings: AppSettings
@@ -28,6 +32,10 @@ final class AppState: ObservableObject {
     private var isReconcilingSettings = false
 
     init() {
+        let discovery = WindowDiscoveryService()
+        let activator = AccessibilityWindowController()
+        overlay = SwitcherOverlayController(discovery: discovery, activator: activator)
+        dockPeek = DockPeekController(discovery: discovery, activator: activator)
         let store = SettingsStore()
         settings = store
         appliedSettings = store.value
@@ -50,6 +58,10 @@ final class AppState: ObservableObject {
             Log.shortcuts.error("Shortcut setup failed: \(error.localizedDescription, privacy: .public)")
         }
         applyAppearance(settings.value)
+        overlay.onStateChange = { [weak self] state in
+            self?.dockPeek.setSuppressed(state != .idle)
+        }
+        dockPeek.apply(settings: settings.value)
         reconcileLaunchAtLoginAtStart()
         installWorkspaceObservers()
         refreshPermissions()
@@ -89,8 +101,15 @@ final class AppState: ObservableObject {
         let status = PermissionService.status
         guard status != permissionStatus else { return }
         let screenRecordingWasRevoked = permissionStatus.screenRecording && !status.screenRecording
+        let accessibilityChanged = permissionStatus.accessibility != status.accessibility
         permissionStatus = status
-        if screenRecordingWasRevoked { overlay.purgeCachedPreviews() }
+        if screenRecordingWasRevoked {
+            overlay.purgeCachedPreviews()
+            dockPeek.purgeVisiblePreviews()
+        }
+        // Dock Peek cannot read the Dock without Accessibility, so granting or
+        // revoking it starts or stops the hover monitor.
+        if accessibilityChanged { dockPeek.apply(settings: settings.value) }
     }
 
     func refreshLaunchAtLoginStatus() {
@@ -213,6 +232,9 @@ final class AppState: ObservableObject {
             refreshLaunchAtLoginStatus()
         }
         appliedSettings = accepted
+        // Cheap and idempotent: it re-reads every field the peek uses and
+        // starts or stops the monitor only when that decision actually changes.
+        dockPeek.apply(settings: accepted)
         guard accepted != value else { return }
         isReconcilingSettings = true
         settings.value = accepted
@@ -295,7 +317,11 @@ final class AppState: ObservableObject {
             center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     self?.dismissSwitcher()
-                    if purgePreviews { self?.overlay.purgeCachedPreviews() }
+                    self?.dockPeek.dismiss()
+                    if purgePreviews {
+                        self?.overlay.purgeCachedPreviews()
+                        self?.dockPeek.purgeVisiblePreviews()
+                    }
                 }
             }
         }
@@ -307,9 +333,19 @@ final class AppState: ObservableObject {
         // Panels are sized to the screens present when the switcher opened, so
         // unplugging or rearranging a display mid-session would leave one on a
         // screen that no longer exists. Screen parameters post to the default
-        // center, not the workspace one.
+        // center, not the workspace one. The same event moves every Dock item,
+        // so the peek locator's cached Dock element has to go with it.
         workspaceObservers.append(
-            dismissOnNotification(NSApplication.didChangeScreenParametersNotification, .default, false)
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.dismissSwitcher()
+                    self?.dockPeek.screenParametersChanged()
+                }
+            }
         )
         // Granting a permission happens in System Settings, so the state that
         // Settings and the menu show is only stale until the user comes back.

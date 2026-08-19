@@ -43,6 +43,8 @@ Use a signed build whose identity matches the intended test build. Record the ma
 
 ## Overlay and activation
 
+- [ ] With Include minimized on, minimizing a window keeps it in the switcher. Verify specifically with Chrome, whose Accessibility and Core Graphics titles for one window differ — every minimized Chrome window used to be dropped from the switcher entirely.
+- [ ] Selecting a minimized window from the switcher un-minimizes and raises it.
 - [ ] Return confirms and Escape cancels.
 - [ ] Left/up moves backward; right/down and Tab move forward.
 - [ ] Mouse wheel and trackpad scrolling move in both directions without excessive repeats.
@@ -82,6 +84,50 @@ Use a signed build whose identity matches the intended test build. Record the ma
 - [ ] Empty, one-window, and thirty-plus-window sets remain usable.
 - [ ] Reduce Motion, Reduce Transparency, and Increase Contrast behave as they do in the Orbit style.
 - [ ] VoiceOver reads each tile as app name followed by window title.
+
+## Dock peek
+
+- [ ] With Dock Peek off, hovering Dock icons does nothing and no panel ever appears.
+- [ ] With Accessibility denied, the Dock Peek tab shows the permission warning and the feature stays inert; granting it starts peek without relaunching.
+- [ ] Enabling Dock Peek and resting on a running app's icon opens a panel after the configured hover delay.
+- [ ] The panel lists every window of that app, including one parked on another Desktop, one that is minimized, and one belonging to a hidden app.
+- [ ] Those three appear even with Include minimized and Include hidden apps switched off and Current Space only switched on under Windows.
+- [ ] Clicking a minimized window's preview un-minimizes and raises that window.
+- [ ] Minimizing every window of an app still leaves its Dock peek populated.
+- [ ] Minimize a Chrome window, then confirm it appears in BOTH the Dock peek and the Tab switcher. Chrome's Accessibility and Core Graphics titles for one window differ, which previously dropped every minimized Chrome window from both. Repeat with an Incognito window and a second Chrome profile.
+- [ ] A window excluded by minimum size or by excluded bundle identifier does not appear.
+- [ ] Hovering a non-running icon, Trash, a stack, a folder, or a minimized-window Dock item opens nothing.
+- [ ] Hovering an app with no eligible windows opens nothing and does not repeatedly re-query while the pointer rests there.
+- [ ] Clicking a preview raises that exact window and closes the panel.
+- [ ] Hovering a preview reveals the close, minimize, and zoom buttons; each performs its action.
+- [ ] Closing a document window with unsaved changes leaves its card in place until the save sheet is resolved.
+- [ ] Zooming from a peek refreshes that card's thumbnail.
+- [ ] Closing the last window of an app closes the panel rather than leaving it empty.
+- [ ] Quitting the peeked application while its panel is open closes the panel.
+- [ ] Moving diagonally from the icon into the panel does not close it; moving away entirely does.
+- [ ] Sliding along the Dock switches the panel to the next app without closing and reopening.
+- [ ] Clicking anywhere outside the panel, including on the Dock icon itself, closes it immediately. Specifically: hover an icon to open the panel, then click that same icon rather than a preview — the panel must go, not linger until you hover a different app.
+- [ ] After such a click, hovering the same icon again reopens the panel normally.
+- [ ] The panel never becomes key: text being typed in another app keeps its insertion point throughout.
+- [ ] Opening the Tab switcher while a peek is up closes the peek, and peek stays suppressed until the switcher is dismissed.
+- [ ] Hover delay and preview width take effect on the next hover without relaunching.
+- [ ] Turning Show window controls off hides the buttons.
+- [ ] The Dock Peek label toggles apply to peek only and leave the switcher's Appearance labels untouched, and vice versa.
+- [ ] With the app name hidden, the window title is centered in the label row rather than sitting low in it.
+- [ ] Turning every Dock Peek label off gives the label row's space back to the preview image.
+- [ ] With Screen Recording denied, peek cards fall back to titles and icons; revoking it mid-session clears visible previews.
+- [ ] An icon at either end of the Dock still produces a fully on-screen panel.
+- [ ] Repeat with the Dock on the left edge, on the right edge, and with Dock auto-hide enabled.
+- [ ] Repeat on a secondary display, and confirm rearranging displays while a peek is open closes it cleanly.
+- [ ] An app with a very long window list narrows the previews, then wraps into an evenly balanced grid whose tiles widen back into the freed room.
+- [ ] With enough windows to overflow (30+), the panel stops growing at three rows and four fifths of the screen instead of filling the display.
+- [ ] That panel scrolls by trackpad and by mouse wheel, reaches the last window, and stops cleanly at both ends.
+- [ ] The window count appears in the corner while scrollable, is clear of every card's title, and is absent when nothing scrolls.
+- [ ] Hovering after scrolling highlights the card actually under the pointer, and a scrolled-away card never reports hover.
+- [ ] Clicking a card after scrolling raises that card's window, not the one that was originally in its place.
+- [ ] Counted against the app's real window count, every window is reachable by scrolling — none are missing.
+- [ ] Reduce Transparency replaces the panel's vibrancy with a solid surface; Increase Contrast strengthens its border.
+- [ ] Sweeping the pointer across the whole screen with peek enabled shows no measurable CPU cost; disabling the setting removes the monitor entirely.
 
 ## Displays and Spaces
 

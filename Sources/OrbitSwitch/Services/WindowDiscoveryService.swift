@@ -74,19 +74,16 @@ actor WindowDiscoveryService: WindowDiscovering {
         }
 
         var metadata = dictionaries.compactMap { Self.metadata(from: $0, application: application) }
-        var minimizedWindows = Self.accessibilityWindowStates(
+        let states = Self.accessibilityWindowStates(
             for: Set(metadata.lazy.filter {
                 !$0.isOnScreen && $0.ownerPID != getpid() && $0.isRegularApplication && $0.layer == 0
             }.map(\.ownerPID))
         )
-        for index in metadata.indices where !metadata[index].isOnScreen {
-            let states = minimizedWindows[metadata[index].ownerPID] ?? []
-            if let stateIndex = states.firstIndex(where: { $0.title == metadata[index].title }) {
-                let matchingState = states[stateIndex]
-                metadata[index].isMinimized = matchingState.isMinimized
-                minimizedWindows[metadata[index].ownerPID]?.remove(at: stateIndex)
-            }
-        }
+        MinimizedStateResolver.apply(
+            to: &metadata,
+            minimizedByWindowID: states.minimizedByWindowID,
+            unidentifiedByPID: states.unidentifiedByPID
+        )
         let eligible = WindowFilter.filtered(metadata, settings: settings, ownPID: getpid())
         return eligible.map { item in
             SwitchableWindow(
@@ -228,28 +225,38 @@ actor WindowDiscoveryService: WindowDiscovering {
         settings.currentSpaceOnly && !settings.includeMinimized && !settings.includeHiddenApps
     }
 
-    private struct AccessibilityWindowState {
-        let title: String
-        let isMinimized: Bool
+    /// What Accessibility could tell us about each off-screen window. How these
+    /// two are reconciled against the Core Graphics list lives in
+    /// `MinimizedStateResolver`, which is where the reasoning is written down.
+    private struct AccessibilityWindowStates {
+        var minimizedByWindowID: [CGWindowID: Bool] = [:]
+        var unidentifiedByPID: [pid_t: [AccessibilityWindowState]] = [:]
     }
 
-    private static func accessibilityWindowStates(for processIDs: Set<pid_t>) -> [pid_t: [AccessibilityWindowState]] {
-        guard AXIsProcessTrusted() else { return [:] }
-        var result: [pid_t: [AccessibilityWindowState]] = [:]
+    private static func accessibilityWindowStates(for processIDs: Set<pid_t>) -> AccessibilityWindowStates {
+        guard AXIsProcessTrusted() else { return AccessibilityWindowStates() }
+        var result = AccessibilityWindowStates()
         for processID in processIDs {
             let application = AXUIElementCreateApplication(processID)
             AXUIElementSetMessagingTimeout(application, 0.2)
             var windowsValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &windowsValue) == .success,
                   let windows = windowsValue as? [AXUIElement] else { continue }
-            result[processID] = windows.map { window in
-                var titleValue: CFTypeRef?
+            for window in windows {
                 var minimizedValue: CFTypeRef?
-                AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
                 AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &minimizedValue)
-                return AccessibilityWindowState(
-                    title: titleValue as? String ?? "",
-                    isMinimized: minimizedValue as? Bool ?? false
+                let isMinimized = minimizedValue as? Bool ?? false
+                if let windowID = AXWindowBridge.windowID(of: window) {
+                    result.minimizedByWindowID[windowID] = isMinimized
+                    continue
+                }
+                var titleValue: CFTypeRef?
+                AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
+                result.unidentifiedByPID[processID, default: []].append(
+                    AccessibilityWindowState(
+                        title: titleValue as? String ?? "",
+                        isMinimized: isMinimized
+                    )
                 )
             }
         }

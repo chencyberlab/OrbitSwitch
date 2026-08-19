@@ -169,6 +169,58 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(decoded.backgroundBlur, 40)
     }
 
+    func testDockPeekIsOffByDefault() {
+        let settings = AppSettings()
+        XCTAssertFalse(settings.dockPeekEnabled)
+        XCTAssertEqual(settings.dockPeekHoverDelay, 0.25)
+        XCTAssertEqual(settings.dockPeekTileWidth, 220)
+        XCTAssertTrue(settings.dockPeekShowControls)
+        XCTAssertTrue(settings.dockPeekShowAppIcon)
+        XCTAssertTrue(settings.dockPeekShowWindowTitle)
+        // Redundant on a panel opened by pointing at that app's own icon.
+        XCTAssertFalse(settings.dockPeekShowAppName)
+    }
+
+    func testPersistenceClampsOutOfRangeDockPeekValues() throws {
+        let suite = "OrbitSwitchTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let persistence = SettingsPersistence(defaults: defaults)
+        var settings = AppSettings()
+        settings.dockPeekHoverDelay = 30
+        settings.dockPeekTileWidth = 4000
+        persistence.save(settings)
+
+        let loaded = persistence.load()
+        XCTAssertEqual(loaded.dockPeekHoverDelay, DockPeekLayout.hoverDelayRange.upperBound)
+        XCTAssertEqual(loaded.dockPeekTileWidth, DockPeekLayout.tileWidthRange.upperBound)
+    }
+
+    /// Settings saved before Dock Peek existed must load unchanged, with the
+    /// feature off rather than silently switched on.
+    func testDecodingSettingsWrittenBeforeDockPeekExisted() throws {
+        var settings = AppSettings()
+        settings.stackAngle = -21
+        var payload = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any]
+        )
+        [
+            "dockPeekEnabled", "dockPeekHoverDelay", "dockPeekTileWidth", "dockPeekShowControls",
+            "dockPeekShowAppIcon", "dockPeekShowAppName", "dockPeekShowWindowTitle"
+        ].forEach {
+            payload.removeValue(forKey: $0)
+        }
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertFalse(decoded.dockPeekEnabled)
+        XCTAssertEqual(decoded.dockPeekHoverDelay, 0.25)
+        XCTAssertEqual(decoded.dockPeekTileWidth, 220)
+        XCTAssertTrue(decoded.dockPeekShowControls)
+        XCTAssertTrue(decoded.dockPeekShowAppIcon)
+        XCTAssertFalse(decoded.dockPeekShowAppName)
+        XCTAssertTrue(decoded.dockPeekShowWindowTitle)
+        XCTAssertEqual(decoded.stackAngle, -21)
+    }
+
     func testDecodingRequiresSchemaVersionSoLegacyPayloadsStillMigrate() {
         let legacy = Data(#"{"shortcuts":{"showNext":{"keyCode":13,"modifiers":4}},"showDockIcon":true}"#.utf8)
         XCTAssertThrowsError(try JSONDecoder().decode(AppSettings.self, from: legacy))
