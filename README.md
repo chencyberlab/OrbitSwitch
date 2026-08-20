@@ -2,6 +2,20 @@
 
 OrbitSwitch is a native macOS menu bar utility inspired by the spatial feel of classic 3D window switchers. It presents eligible windows either as an original perspective stack or as a Stage Manager-style strip along one edge of the display, supports configurable global shortcuts, and keeps all window data on the Mac.
 
+## Screenshots
+
+**Orbit switcher** — the perspective staircase:
+
+![Orbit switcher showing window cards receding toward a vanishing point](Screenshots/Switcher_Orbit.png)
+
+**Sidebar switcher** — a compact tile strip docked to a screen edge:
+
+![Sidebar switcher with a column of window tiles along the left edge](Screenshots/Switcher_SIdebar_Mode.png)
+
+**Dock peek** — every window of the hovered Dock icon:
+
+![Dock peek panel listing an application's windows above the Dock](Screenshots/Dock_Peek.png)
+
 ## Requirements
 
 - macOS 14 or newer
